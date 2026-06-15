@@ -1,0 +1,33 @@
+# Logs and temp files
+logs/
+*.log
+__pycache__/
+*.pyc
+.pytest_cache/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+build/
+install/
+devel/
+*.egg-info/
+
+# Frontend deps
+node_modules/
+
+# Environment / secrets
+.env
+*.env
+*.key
+*.pem
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large models / recordings (keep structure, not data)
+*.mp4
+*.bag
+*.mkv
