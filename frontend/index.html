@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MIR Suite</title>
+
+    <style>
+        :root {
+            --bg: #f6f8fa;
+            --bg2: #ffffff;
+            --bg3: #eef1f4;
+            --border: #d0d7de;
+            --text: #1f2328;
+            --text2: #656d76;
+            --accent: #0969da;
+            --accent2: #0550ae;
+            --green: #1a7f37;
+            --red: #cf222e;
+            --yellow: #9a6700;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 13px;
+        }
+        #toolbar {
+            background: var(--bg2);
+            padding: 8px 14px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        #toolbar .brand {
+            color: var(--accent2);
+            font-weight: 700;
+            font-size: 15px;
+            letter-spacing: -0.3px;
+        }
+        #status {
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .connected { background: #dafbe1; color: var(--green); }
+        .disconnected { background: #ffebe9; color: var(--red); }
+
+        button {
+            background: var(--bg3);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 5px 13px;
+            border-radius: 5px;
+            cursor: pointer;
+            font: inherit;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.15s;
+        }
+        button:hover { background: #d1d9e0; border-color: var(--accent); }
+        button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        button.primary:hover { background: var(--accent2); }
+        button.danger { background: #fff; border-color: var(--red); color: var(--red); }
+        button.danger:hover { background: var(--red); color: #fff; }
+
+        #content { display: flex; flex-wrap: wrap; padding: 12px; gap: 12px; }
+
+        .panel {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .panel-body { padding: 10px 12px; }
+
+        .joint-row { font-size: 12px; padding: 2px 0; color: var(--text); }
+        .joint-row .name { color: var(--text2); }
+        .joint-row .val { color: var(--accent2); float: right; font-variant-numeric: tabular-nums; }
+
+        /* Services */
+        .svc-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+        }
+        .svc-row:last-child { border-bottom: none; }
+        .svc-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .svc-dot.on { background: var(--green); }
+        .svc-dot.off { background: var(--border); }
+        .svc-dot.err { background: var(--red); }
+        .svc-info { flex: 1; min-width: 0; }
+        .svc-info .label { font-weight: 500; }
+        .svc-info .sub { color: var(--text2); font-size: 11px; margin-left: 6px; }
+        .svc-status { color: var(--text2); font-size: 11px; margin-right: 4px; }
+        .svc-btn {
+            background: transparent;
+            border-color: var(--border);
+            padding: 2px 10px;
+            font-size: 11px;
+        }
+        .svc-btn.start { border-color: var(--green); color: var(--green); }
+        .svc-btn.start:hover { background: #dafbe1; }
+        .svc-btn.stop { border-color: var(--red); color: var(--red); }
+        .svc-btn.stop:hover { background: #ffebe9; }
+
+        /* Camera */
+        #cam-img { width: 100%; border-radius: 4px; display: block; }
+
+        /* Arm control */
+        .arm-grid { display: grid; grid-template-columns: auto 1fr 1fr 1fr; gap: 4px; align-items: center; }
+        .arm-grid .hdr { font-size: 10px; color: var(--text2); text-align: center; font-weight: 600; }
+        .arm-grid .label { font-size: 12px; font-weight: 600; text-align: right; padding-right: 6px; }
+        .arm-grid .val { text-align: center; font-size: 11px; color: var(--accent2); font-variant-numeric: tabular-nums; padding: 2px; background: var(--bg); border-radius: 3px; }
+        .step-btn { padding: 2px 6px !important; font-size: 11px !important; min-width: 32px; }
+        .arm-speed { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11px; }
+        .arm-speed label { color: var(--text2); }
+        .arm-speed input { flex: 1; accent-color: var(--accent); }
+        .arm-speed .val { color: var(--accent2); width: 30px; text-align: right; }
+        .arm-presets { display: flex; gap: 4px; margin-bottom: 8px; }
+        .arm-presets button { flex:1; padding: 3px 6px; font-size: 11px; }
+        .arm-actions { display: flex; gap: 6px; margin-top: 8px; }
+        .arm-actions button { flex: 1; font-size: 12px; }
+
+        /* Console log */
+        #console {
+            height: 140px;
+            overflow-y: auto;
+            font-family: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+            font-size: 11px;
+            color: var(--text);
+            padding: 6px 10px;
+            background: #f6f8fa;
+            border-top: 1px solid var(--border);
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        #console .ts { color: #8b949e; }
+        #console .ok { color: var(--green); }
+        #console .warn { color: var(--yellow); }
+        #console .err { color: var(--red); }
+        #console .info { color: var(--accent); }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <span class="brand">MIR Suite</span>
+        <span id="status" class="disconnected">DISCONNECTED</span>
+        <button class="primary" onclick="wsConnect()">Connect</button>
+        <button onclick="wsDisconnect()">Disconnect</button>
+        <button class="danger" onclick="emergencyStop()">E-STOP</button>
+    </div>
+
+    <div id="content">
+        <!-- Left: Camera + Console -->
+        <div style="flex:2; min-width:400px; display:flex; flex-direction:column; gap:12px;">
+            <div class="panel" style="flex:1;">
+                <div class="panel-header">
+                    <span>Camera</span>
+                    <span style="font-weight:400;color:var(--text2);font-size:11px;" id="cam-status">--</span>
+                </div>
+                <div class="panel-body" style="padding:4px;">
+                    <img id="cam-img" alt="Camera feed" />
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <span>Console</span>
+                    <button style="font-size:11px;padding:2px 8px;" onclick="clearConsole()">Clear</button>
+                </div>
+                <div id="console"></div>
+            </div>
+        </div>
+
+        <!-- Right column -->
+        <div style="display:flex; flex-direction:column; gap:12px; flex:1; min-width:280px;">
+            <div class="panel">
+                <div class="panel-header"><span>Left Arm</span></div>
+                <div class="panel-body" id="left-joints">Waiting for data...</div>
+            </div>
+            <div class="panel">
+                <div class="panel-header"><span>Right Arm</span></div>
+                <div class="panel-body" id="right-joints">Waiting for data...</div>
+            </div>
+            <div class="panel">
+                <div class="panel-header"><span>Arm Control</span></div>
+                <div class="panel-body">
+                    <div class="arm-presets">
+                        <button id="btn-left" onclick="setArmSide('left')" style="background:var(--accent);color:#fff;border-color:var(--accent)">Left</button>
+                        <button id="btn-right" onclick="setArmSide('right')">Right</button>
+                    </div>
+                    <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">
+                        Frame: table_corner | <span id="arm-pos" style="color:var(--accent2);">X=0.20 Y=0.00 Z=0.30</span>
+                    </div>
+                    <div class="arm-grid">
+                        <span></span>
+                        <span class="hdr">-10mm</span><span class="hdr">+10mm</span><span class="hdr">Reset</span>
+                        <span class="label">X</span>
+                        <button class="step-btn" onclick="armStep('x',-0.01)">-</button>
+                        <button class="step-btn" onclick="armStep('x',0.01)">+</button>
+                        <span class="val" id="v-x">0.20</span>
+                        <span class="label">Y</span>
+                        <button class="step-btn" onclick="armStep('y',-0.01)">-</button>
+                        <button class="step-btn" onclick="armStep('y',0.01)">+</button>
+                        <span class="val" id="v-y">0.00</span>
+                        <span class="label">Z</span>
+                        <button class="step-btn" onclick="armStep('z',-0.01)">-</button>
+                        <button class="step-btn" onclick="armStep('z',0.01)">+</button>
+                        <span class="val" id="v-z">0.30</span>
+                    </div>
+                    <div class="arm-speed">
+                        <label>Speed</label>
+                        <input type="range" id="arm-v" min="1" max="10" value="3" oninput="document.getElementById('arm-vv').textContent=(parseInt(this.value)/100).toFixed(2)">
+                        <span class="val" id="arm-vv">0.03</span>
+                    </div>
+                    <div class="arm-actions">
+                        <button class="primary" onclick="armGo()">Go</button>
+                        <button class="danger" onclick="armStop()">Stop</button>
+                    </div>
+                    <div id="arm-status" style="font-size:11px;color:var(--text2);margin-top:4px;"></div>
+                </div>
+            </div>
+            <div class="panel">
+                <div class="panel-header">
+                    <span>Services</span>
+                    <button style="font-size:11px;padding:2px 8px;" onclick="refreshServices()">Refresh</button>
+                </div>
+                <div class="panel-body" id="services-list">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // ============================================================
+        // Console logger
+        // ============================================================
+        function conLog(msg, cls) {
+            const el = document.getElementById('console');
+            const now = new Date();
+            const ts = now.toTimeString().slice(0, 8);
+            const cl = cls || '';
+            el.innerHTML += `<div><span class="ts">[${ts}]</span> <span class="${cl}">${msg}</span></div>`;
+            el.scrollTop = el.scrollHeight;
+        }
+        window.clearConsole = () => { document.getElementById('console').innerHTML = ''; conLog('Console cleared'); };
+
+        // ============================================================
+        // WebSocket
+        // ============================================================
+        let ws = null;
+        const statusEl = document.getElementById('status');
+        const _callbacks = {};
+
+        function wsConnect() {
+            if (ws && ws.readyState === WebSocket.OPEN) return;
+            const url = `ws://${window.location.hostname}:9090`;
+            conLog('Connecting to ' + url + ' ...', 'info');
+            ws = new WebSocket(url);
+            ws.onopen = () => {
+                statusEl.textContent = 'CONNECTED';
+                statusEl.className = 'connected';
+                conLog('WebSocket connected', 'ok');
+
+                rosSubscribe('/dynamic_joint_states', 'control_msgs/DynamicJointState', updateJoints);
+                rosSubscribe('/camera/color/image_raw/compressed', 'sensor_msgs/CompressedImage', updateCamera);
+            };
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.op === 'publish' && _callbacks[data.topic]) {
+                    _callbacks[data.topic](data.msg);
+                }
+            };
+            ws.onclose = () => {
+                statusEl.textContent = 'DISCONNECTED';
+                statusEl.className = 'disconnected';
+                conLog('WebSocket disconnected', 'warn');
+                ws = null;
+            };
+            ws.onerror = () => {
+                conLog('WebSocket error', 'err');
+                ws?.close();
+            };
+        }
+
+        function wsDisconnect() {
+            if (ws) { ws.close(); conLog('Disconnected by user', 'warn'); }
+        }
+
+        function rosSend(obj) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(JSON.stringify(obj));
+        }
+
+        function rosSubscribe(topic, type, callback) {
+            const id = 'sub_' + topic.replace(/\//g, '_');
+            _callbacks[topic] = callback;
+            rosSend({ op: 'subscribe', id, topic, type });
+        }
+
+        // ============================================================
+        // E-Stop
+        // ============================================================
+        function emergencyStop() {
+            conLog('E-STOP activated', 'err');
+            rosSend({
+                op: 'call_service',
+                id: 'estop_' + Date.now(),
+                service: '/controller_manager/switch_controller',
+                type: 'controller_manager_msgs/srv/SwitchController',
+                args: {
+                    activate_controllers: [],
+                    deactivate_controllers: [
+                        'left_scaled_joint_trajectory_controller',
+                        'right_scaled_joint_trajectory_controller'
+                    ],
+                    strictness: 1,
+                    activate_asap: false
+                }
+            });
+            statusEl.textContent = 'E-STOP';
+            statusEl.className = 'disconnected';
+        }
+
+        // ============================================================
+        // Joints — parse /dynamic_joint_states (control_msgs/DynamicJointState)
+        // ============================================================
+        const ARM_JOINTS = [
+            'shoulder_pan_joint', 'shoulder_lift_joint',
+            'elbow_joint',
+            'wrist_1_joint', 'wrist_2_joint', 'wrist_3_joint'
+        ];
+
+        function updateJoints(msg) {
+            let l = '', r = '';
+            for (let i = 0; i < msg.joint_names.length; i++) {
+                const name = msg.joint_names[i];
+                // Match arm joints only: left_elbow_joint, right_wrist_3_joint, etc.
+                const sideMatch = name.match(/^(left_|right_)(.*)/);
+                if (!sideMatch) continue;
+                const suffix = sideMatch[2];
+                if (!ARM_JOINTS.includes(suffix)) continue;
+
+                const iface = msg.interface_values[i];
+                const posIdx = iface.interface_names.indexOf('position');
+                if (posIdx === -1) continue;
+                const val = iface.values[posIdx].toFixed(4);
+
+                const short = suffix;
+                const line = `<div class="joint-row"><span class="name">${short}</span><span class="val">${val} rad</span></div>`;
+                if (sideMatch[1] === 'left_') l += line;
+                else r += line;
+            }
+            document.getElementById('left-joints').innerHTML = l || 'No data';
+            document.getElementById('right-joints').innerHTML = r || 'No data';
+        }
+
+        // ============================================================
+        // Arm Control — step buttons + Go/Stop
+        // ============================================================
+        let armTarget = { x: 0.20, y: 0.00, z: 0.30 };
+        let armSide = 'left';
+
+        function updateSide() {
+            const lb = document.getElementById('btn-left');
+            const rb = document.getElementById('btn-right');
+            lb.style.background = armSide === 'left' ? 'var(--accent)' : '';
+            lb.style.color = armSide === 'left' ? '#fff' : '';
+            rb.style.background = armSide === 'right' ? 'var(--accent)' : '';
+            rb.style.color = armSide === 'right' ? '#fff' : '';
+        }
+
+        function setArmSide(side) {
+            armSide = side;
+            updateSide();
+            conLog('Arm selected: ' + side.toUpperCase(), 'info');
+        }
+
+        updateSide();
+
+        function armStep(axis, delta) {
+            armTarget[axis] += delta;
+            armTarget[axis] = Math.round(armTarget[axis] * 1000) / 1000; // round to mm
+            document.getElementById('v-' + axis).textContent = armTarget[axis].toFixed(3);
+            document.getElementById('arm-pos').textContent =
+                `X=${armTarget.x.toFixed(3)} Y=${armTarget.y.toFixed(3)} Z=${armTarget.z.toFixed(3)}`;
+        }
+
+        function armGo() {
+            const v = parseInt(document.getElementById('arm-v').value) / 100;
+            const cmd = {
+                op: 'publish',
+                id: 'arm_go_' + Date.now(),
+                topic: '/mir/command',
+                msg: {
+                    data: JSON.stringify({
+                        command: 'move_arm',
+                        args: {
+                            side: armSide,
+                            frame: 'table_corner',
+                            x: armTarget.x, y: armTarget.y, z: armTarget.z,
+                            rx: 0, ry: 0, rz: 0, rw: 1,
+                            velocity: v,
+                            cartesian: true,
+                            partial: false,
+                        }
+                    })
+                }
+            };
+            conLog(`Go ${armSide.toUpperCase()} → X=${armTarget.x.toFixed(3)} Y=${armTarget.y.toFixed(3)} Z=${armTarget.z.toFixed(3)} v=${v.toFixed(2)}`, 'info');
+            document.getElementById('arm-status').textContent = 'Moving...';
+            rosSend(cmd);
+            rosSubscribe('/mir/status', 'std_msgs/String', (msg) => {
+                try {
+                    const data = JSON.parse(msg.data);
+                    if (data.action === 'move_arm') {
+                        document.getElementById('arm-status').textContent = data.result;
+                        conLog('Arm: ' + data.result, data.result === 'ok' ? 'ok' : 'warn');
+                    }
+                } catch(e) {}
+            });
+        }
+
+        function armStop() {
+            rosSend({
+                op: 'publish',
+                id: 'arm_stop_' + Date.now(),
+                topic: '/mir/command',
+                msg: { data: JSON.stringify({ command: 'stop_arm' }) }
+            });
+            conLog('STOP', 'warn');
+            document.getElementById('arm-status').textContent = 'Stopped';
+        }
+
+        window.setArmSide = setArmSide;
+        window.armStep = armStep;
+        window.armGo = armGo;
+        window.armStop = armStop;
+
+        // ============================================================
+        // Camera
+        // ============================================================
+        function updateCamera(msg) {
+            document.getElementById('cam-img').src = 'data:image/jpeg;base64,' + msg.data;
+            document.getElementById('cam-status').textContent = 'live';
+        }
+
+        // ============================================================
+        // Services Dashboard
+        // ============================================================
+        async function refreshServices() {
+            conLog('Refreshing services...', 'info');
+            try {
+                const resp = await fetch('/api/containers');
+                if (!resp.ok) {
+                    document.getElementById('services-list').innerHTML = '<span style="color:var(--text2)">API unavailable</span>';
+                    conLog('API unavailable (status ' + resp.status + ')', 'err');
+                    return;
+                }
+                const data = await resp.json();
+                const list = document.getElementById('services-list');
+                let html = '';
+                let running = 0, total = 0;
+                for (const svc of data.services) {
+                    total++;
+                    if (svc.running) running++;
+                    const dot = svc.running ? 'on' : (svc.exists ? 'off' : 'err');
+                    const status = svc.running ? 'running' : (svc.exists ? 'stopped' : 'off');
+                    html += `<div class="svc-row">`
+                        + `<span class="svc-dot ${dot}"></span>`
+                        + `<span class="svc-info"><span class="label">${svc.label}</span><span class="sub">${svc.name}</span></span>`
+                        + `<span class="svc-status">${status}</span>`
+                        + (svc.exists && !svc.running ? `<button class="svc-btn start" onclick="svcStart('${svc.name}')">Start</button>` : '')
+                        + (svc.running && svc.name !== 'mir_ui' ? `<button class="svc-btn stop" onclick="svcStop('${svc.name}')">Stop</button>` : '')
+                        + `</div>`;
+                }
+                list.innerHTML = html;
+                conLog(`Services: ${running}/${total} running`, 'ok');
+            } catch (e) {
+                document.getElementById('services-list').innerHTML = '<span style="color:var(--text2)">Docker unavailable</span>';
+                conLog('Docker unavailable: ' + e.message, 'err');
+            }
+        }
+
+        async function svcStart(name) {
+            conLog('Starting ' + name + '...', 'info');
+            try {
+                const resp = await fetch('/api/containers/' + name + '/start', { method: 'POST' });
+                const data = await resp.json();
+                conLog(name + ': ' + data.action, 'ok');
+                setTimeout(refreshServices, 1500);
+            } catch (e) {
+                conLog('Start ' + name + ' failed: ' + e.message, 'err');
+            }
+        }
+
+        async function svcStop(name) {
+            if (!confirm(`Stop ${name}?`)) return;
+            conLog('Stopping ' + name + '...', 'info');
+            try {
+                const resp = await fetch('/api/containers/' + name + '/stop', { method: 'POST' });
+                const data = await resp.json();
+                conLog(name + ': ' + data.action, 'ok');
+                setTimeout(refreshServices, 2000);
+            } catch (e) {
+                conLog('Stop ' + name + ' failed: ' + e.message, 'err');
+            }
+        }
+
+        window.svcStart = svcStart;
+        window.svcStop = svcStop;
+
+        // ============================================================
+        // Globals + boot
+        // ============================================================
+        window.wsConnect = wsConnect;
+        window.wsDisconnect = wsDisconnect;
+        window.emergencyStop = emergencyStop;
+        window.refreshServices = refreshServices;
+
+        window.addEventListener('DOMContentLoaded', () => {
+            conLog('MIR Suite started', 'info');
+            wsConnect();
+            refreshServices();
+        });
+    </script>
+</body>
+</html>

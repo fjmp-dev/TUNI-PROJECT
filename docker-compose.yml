@@ -1,0 +1,52 @@
+services:
+  # Always-on service (no profile = always starts)
+  mir_ui:
+    build:
+      context: .
+      dockerfile: docker/ui/Dockerfile
+    image: mir_ui:latest
+    container_name: mir_ui
+    network_mode: host
+    volumes:
+      - ./backend/main.py:/app/main.py
+      - ./frontend:/app/static
+      - ./models:/app/static/models
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  # --- Services by profile ---
+
+  camera:
+    build: ./docker/camera
+    image: mir-camera:latest
+    container_name: mir_camera
+    network_mode: host
+    privileged: true
+    profiles: [vision, full]
+    volumes:
+      - /home/lab/pbd_system:/root/workspace
+      - ./logs:/var/log/mir
+      - /dev:/dev
+    environment:
+      - ROS_DOMAIN_ID=75
+    restart: unless-stopped
+
+  ur_driver:
+    build: ./docker/ur_driver
+    image: mir-ur-driver:latest
+    container_name: mir_ur_driver
+    network_mode: host
+    privileged: true
+    profiles: [arms, full]
+    volumes:
+      - /home/lab/pbd_system:/root/workspace
+      - ./logs:/var/log/mir
+      - /dev:/dev
+      - /usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/tegra
+      - ./scripts/action_bridge.py:/action_bridge.py
+      - ./scripts/ur_entrypoint.sh:/entrypoint.sh
+      - ./config:/mir/config
+    environment:
+      - ROS_DOMAIN_ID=75
+      - DISPLAY=:1
+    restart: unless-stopped

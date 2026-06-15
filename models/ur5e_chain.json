@@ -1,0 +1,191 @@
+{
+  "base": {
+    "visual_mesh": "base.dae",
+    "visual_xyz": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "visual_rpy": [
+      0.0,
+      0.0,
+      3.141592653589793
+    ]
+  },
+  "chain": [
+    {
+      "joint_name": "shoulder_pan_joint",
+      "origin_xyz": [
+        0.0,
+        0.0,
+        0.1625
+      ],
+      "origin_rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "visual_mesh": "shoulder.dae",
+      "visual_xyz": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "visual_rpy": [
+        0.0,
+        0.0,
+        3.141592653589793
+      ]
+    },
+    {
+      "joint_name": "shoulder_lift_joint",
+      "origin_xyz": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin_rpy": [
+        1.570796327,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "visual_mesh": "upperarm.dae",
+      "visual_xyz": [
+        0.0,
+        0.0,
+        0.138
+      ],
+      "visual_rpy": [
+        1.5707963267948966,
+        0.0,
+        -1.5707963267948966
+      ]
+    },
+    {
+      "joint_name": "elbow_joint",
+      "origin_xyz": [
+        -0.425,
+        0.0,
+        0.0
+      ],
+      "origin_rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "visual_mesh": "forearm.dae",
+      "visual_xyz": [
+        0.0,
+        0.0,
+        0.007
+      ],
+      "visual_rpy": [
+        1.5707963267948966,
+        0.0,
+        -1.5707963267948966
+      ]
+    },
+    {
+      "joint_name": "wrist_1_joint",
+      "origin_xyz": [
+        -0.3922,
+        0.0,
+        0.1333
+      ],
+      "origin_rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "visual_mesh": "wrist1.dae",
+      "visual_xyz": [
+        0.0,
+        0.0,
+        -0.127
+      ],
+      "visual_rpy": [
+        1.5707963267948966,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "joint_name": "wrist_2_joint",
+      "origin_xyz": [
+        0.0,
+        -0.0997,
+        -2.044881182297852e-11
+      ],
+      "origin_rpy": [
+        1.570796327,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "visual_mesh": "wrist2.dae",
+      "visual_xyz": [
+        0.0,
+        0.0,
+        -0.0997
+      ],
+      "visual_rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "joint_name": "wrist_3_joint",
+      "origin_xyz": [
+        0.0,
+        0.0996,
+        -2.042830148012698e-11
+      ],
+      "origin_rpy": [
+        1.570796326589793,
+        3.141592653589793,
+        3.141592653589793
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "visual_mesh": "wrist3.dae",
+      "visual_xyz": [
+        0.0,
+        0.0,
+        -0.0989
+      ],
+      "visual_rpy": [
+        1.5707963267948966,
+        0.0,
+        0.0
+      ]
+    }
+  ]
+}
