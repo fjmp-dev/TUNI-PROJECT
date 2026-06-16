@@ -31,3 +31,8 @@ Thumbs.db
 *.mp4
 *.bag
 *.mkv
+
+# Tokens and credentials
+.github_token
+*.token
+.env
