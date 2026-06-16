@@ -22,7 +22,6 @@ services:
     container_name: mir_camera
     network_mode: host
     privileged: true
-    profiles: [vision, full]
     volumes:
       - /home/lab/pbd_system:/root/workspace
       - ./logs:/var/log/mir

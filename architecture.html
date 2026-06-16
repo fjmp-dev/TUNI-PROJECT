@@ -163,7 +163,7 @@
           <tr>
             <td>Cámara Orbbec</td>
             <td><span class="tag tag-success">Funciona</span></td>
-            <td>Debe correr dentro del mismo contenedor que el driver por problemas de DDS entre contenedores.</td>
+            <td>Contenedor separado (<code>mir_camera</code>). DDS via <code>network_mode: host</code>. Se inicia automáticamente.</td>
           </tr>
           <tr>
             <td>Brazo derecho</td>
@@ -192,7 +192,7 @@ flowchart TB
     subgraph Kevin["Jetson AGX Orin (Kevin)"]
         UI["mir_ui<br/>FastAPI :8080"]
         Driver["mir_ur_driver<br/>UR driver + MoveIt + rosbridge :9090 + action_bridge"]
-        Camera["orbbec_camera<br/>(dentro de mir_ur_driver por DDS)"]
+        Camera["mir_camera<br/>Orbbec Gemini 335Lg"]
     end
     Browser["Navegador del usuario"]
     RightArm["Brazo derecho UR5e<br/>192.168.1.103"]
@@ -202,7 +202,7 @@ flowchart TB
     UI -->|WebSocket :9090| Driver
     Driver -->|ROS 2 actions/topics| RightArm
     Driver -.->|no conecta| LeftArm
-    Camera -->|/camera/*| Driver
+    Camera -->|DDS /camera/*| Driver
       </div>
 
       <h3>Relación con proyectos originales</h3>
@@ -238,9 +238,9 @@ flowchart TB
           <tr>
             <td><code>mir_camera</code></td>
             <td><code>mir-camera:latest</code></td>
-            <td>Actualmente parado. La cámara se ejecuta dentro de <code>mir_ur_driver</code> para evitar problemas DDS.</td>
+            <td>Orbbec Gemini 335Lg. Contenedor separado. Se comunica con <code>mir_ur_driver</code> via DDS gracias a <code>network_mode: host</code>.</td>
             <td>—</td>
-            <td>—</td>
+            <td><code>/home/lab/pbd_system:/root/workspace</code>, <code>/dev:/dev</code></td>
           </tr>
         </tbody>
       </table>
@@ -419,10 +419,10 @@ sequenceDiagram
           </tr>
           <tr>
             <td>7</td>
-            <td>La cámara debe correr dentro del mismo contenedor que el driver.</td>
+            <td>La cámara debe correr en contenedor separado.</td>
             <td>Arquitectura DDS</td>
-            <td><span class="tag tag-info">Medio</span></td>
-            <td>Actualmente se lanza manualmente dentro de <code>mir_ur_driver</code>. Incluirlo en el entrypoint o unir contenedores.</td>
+            <td><span class="tag tag-success">Resuelto</span></td>
+            <td><code>mir_camera</code> corre en su propio contenedor. DDS funciona correctamente via <code>network_mode: host</code>. Sin <code>profiles</code> en docker-compose para que arranque siempre.</td>
           </tr>
           <tr>
             <td>8</td>
@@ -478,7 +478,14 @@ sequenceDiagram
             <li>Validar en simulación y luego en robot real con movimientos muy pequeños.</li>
           </ul>
         </li>
-        <li><strong>Seguridad en la UI</strong>
+        <li><strong>UI modular</strong>
+          <ul>
+            <li>Reconstruir UI enfocándose primero en la cámara como primer módulo.</li>
+            <li>Añadir módulos incrementalmente: brazos, MiR, mano, etc.</li>
+            <li>Indicador de estado de conexión de cada módulo.</li>
+          </ul>
+        </li>
+        <li><strong>Seguridad en la UI (brazos)</strong>
           <ul>
             <li>Botón Home con confirmación.</li>
             <li>Límite de velocidad máxima (ej. 5%).</li>
@@ -503,7 +510,7 @@ sequenceDiagram
   </main>
 
   <footer>
-    <p>Documento generado el 15 de junio de 2026 · MIR Suite · TUNI-PROJECT</p>
+    <p>Documento actualizado el 15 de junio de 2026 · MIR Suite · TUNI-PROJECT</p>
   </footer>
 
   <script>

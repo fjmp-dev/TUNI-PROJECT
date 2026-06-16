@@ -7,6 +7,11 @@
 
 ## Lo que ya está funcionando
 
+
+
+
+
+
 ### Infraestructura Docker
 - 3 contenedores modulares (`mir_ui`, `mir_camera`, `mir_ur_driver`)
 - `docker-compose.yml` con profiles: `--profile vision`, `--profile arms`, `--profile full`
@@ -22,6 +27,9 @@
 - Cámara Orbbec → feed JPEG en vivo (30 fps, 1280x800)
 
 ### Web UI funcional
+
+
+
 - Panel izquierdo: ángulos de las 6 articulaciones del brazo izquierdo
 - Panel derecho: ángulos de las 6 articulaciones del brazo derecho
 - Panel de cámara: video en vivo de la Orbbec
