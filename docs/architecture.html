@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MIR Suite — Mapeo de Arquitectura</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8f9fa;
+      --card: #ffffff;
+      --text: #212529;
+      --muted: #6c757d;
+      --primary: #0d6efd;
+      --danger: #dc3545;
+      --warning: #ffc107;
+      --success: #198754;
+      --border: #dee2e6;
+      --code: #f1f3f5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 2rem 1rem;
+      text-align: center;
+    }
+    header h1 { margin: 0; font-size: 2rem; }
+    header p { color: var(--muted); margin: 0.5rem 0 0; }
+    nav {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    nav ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.5rem 1rem;
+    }
+    nav a { text-decoration: none; color: var(--primary); font-weight: 500; }
+    nav a:hover { text-decoration: underline; }
+    main { max-width: 1100px; margin: 0 auto; padding: 2rem 1rem; }
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    h2 { margin-top: 0; border-bottom: 2px solid var(--primary); padding-bottom: 0.5rem; }
+    h3 { margin-top: 1.5rem; }
+    code, pre {
+      background: var(--code);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.9em;
+    }
+    pre {
+      padding: 1rem;
+      border-radius: 0.4rem;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+    }
+    code { padding: 0.15rem 0.35rem; border-radius: 0.2rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.95rem;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.6rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: var(--bg); }
+    .tag {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .tag-danger { background: #f8d7da; color: #842029; }
+    .tag-warning { background: #fff3cd; color: #664d03; }
+    .tag-success { background: #d1e7dd; color: #0f5132; }
+    .tag-info { background: #cfe2ff; color: #084298; }
+    .callout {
+      border-left: 4px solid var(--primary);
+      background: #e7f1ff;
+      padding: 1rem;
+      border-radius: 0 0.4rem 0.4rem 0;
+      margin: 1rem 0;
+    }
+    .callout-danger { border-left-color: var(--danger); background: #f8d7da; }
+    .callout-warning { border-left-color: var(--warning); background: #fff3cd; }
+    .mermaid { text-align: center; }
+    footer {
+      text-align: center;
+      color: var(--muted);
+      padding: 2rem 1rem;
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>MIR Suite — Mapeo de Arquitectura</h1>
+    <p>Documento vivo para entender cómo estamos controlando MIR + UR5e desde un navegador.</p>
+  </header>
+
+  <nav>
+    <ul>
+      <li><a href="#resumen">Resumen</a></li>
+      <li><a href="#arquitectura">Arquitectura</a></li>
+      <li><a href="#contenedores">Contenedores</a></li>
+      <li><a href="#flujo">Flujo de datos</a></li>
+      <li><a href="#codigo">Código clave</a></li>
+      <li><a href="#hardcodeos">Hardcodeos y problemas</a></li>
+      <li><a href="#simulacion">Simulación</a></li>
+      <li><a href="#roadmap">Roadmap</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <section id="resumen">
+      <h2>1. Resumen ejecutivo</h2>
+      <p>
+        El objetivo es controlar el robot MIR + dos UR5e desde un navegador, sin instalar ROS en el portátil del usuario.
+        La solución actual corre en el Jetson AGX Orin ("Kevin", IP <code>192.168.1.75</code>) y usa Docker + ROS 2 Humble + MoveIt + WebSocket (rosbridge) + una UI web.
+      </p>
+      <div class="callout callout-danger">
+        <strong>Estado actual (crítico):</strong> el brazo derecho se mueve, pero los movimientos no son seguros.
+        El <code>right_joint_trajectory_controller</code> falla repetidamente por violación de tolerancia, y el <code>action_bridge</code>
+        forzaba una orientación fija que torció la muñeca. <strong>NO usar el robot físico</strong> hasta corregir el controlador y probar en simulación.
+      </div>
+      <table>
+        <thead>
+          <tr><th>Componente</th><th>Estado</th><th>Nota</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>UI web (<code>mir_ui</code>)</td>
+            <td><span class="tag tag-success">Funciona</span></td>
+            <td>FastAPI sirve la página en <code>:8080</code>. Muestra cámara, joints, dashboard de servicios y controles de brazo.</td>
+          </tr>
+          <tr>
+            <td>Cámara Orbbec</td>
+            <td><span class="tag tag-success">Funciona</span></td>
+            <td>Debe correr dentro del mismo contenedor que el driver por problemas de DDS entre contenedores.</td>
+          </tr>
+          <tr>
+            <td>Brazo derecho</td>
+            <td><span class="tag tag-warning">Inestable</span></td>
+            <td>Conecta, MoveIt planifica, pero la ejecución falla por tolerancia. Requiere <code>right_scaled_joint_trajectory_controller</code>.</td>
+          </tr>
+          <tr>
+            <td>Brazo izquierdo</td>
+            <td><span class="tag tag-danger">No conecta</span></td>
+            <td>Problema de hardware / teach pendant / URCap. No es software.</td>
+          </tr>
+          <tr>
+            <td>Mano / Nordbo</td>
+            <td><span class="tag tag-info">Pendiente</span></td>
+            <td>El <code>action_bridge</code> tiene stubs pero no están probados.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="arquitectura">
+      <h2>2. Arquitectura general</h2>
+      <p>Todo corre en <strong>modo host</strong> (<code>network_mode: host</code>) porque el kernel del Jetson no soporta iptables <code>raw</code> para redes bridge de Docker.</p>
+      <div class="mermaid">
+flowchart TB
+    subgraph Kevin["Jetson AGX Orin (Kevin)"]
+        UI["mir_ui<br/>FastAPI :8080"]
+        Driver["mir_ur_driver<br/>UR driver + MoveIt + rosbridge :9090 + action_bridge"]
+        Camera["orbbec_camera<br/>(dentro de mir_ur_driver por DDS)"]
+    end
+    Browser["Navegador del usuario"]
+    RightArm["Brazo derecho UR5e<br/>192.168.1.103"]
+    LeftArm["Brazo izquierdo UR5e<br/>192.168.1.102"]
+
+    Browser -->|HTTP/WebSocket| UI
+    UI -->|WebSocket :9090| Driver
+    Driver -->|ROS 2 actions/topics| RightArm
+    Driver -.->|no conecta| LeftArm
+    Camera -->|/camera/*| Driver
+      </div>
+
+      <h3>Relación con proyectos originales</h3>
+      <p><code>mir_ur_driver</code> no copia el workspace de UR; lo <strong>monta</strong> desde <code>/home/lab/pbd_system</code>. Esto significa que:</p>
+      <ul>
+        <li>Usamos los paquetes <code>duo_ur</code>, <code>moveit_utils_pkg</code>, <code>duo_ur5e_torso_moveit_config</code>, etc., sin modificarlos.</li>
+        <li>Cualquier cambio en <code>/home/lab/pbd_system</code> afectaría a los proyectos originales, así que no lo tocamos.</li>
+        <li>Nuestros scripts (<code>action_bridge.py</code>, <code>ur_entrypoint.sh</code>) se montan dentro del contenedor desde <code>mir_suite/scripts/</code>.</li>
+      </ul>
+    </section>
+
+    <section id="contenedores">
+      <h2>3. Contenedores</h2>
+      <table>
+        <thead>
+          <tr><th>Contenedor</th><th>Imagen</th><th>Propósito</th><th>Puertos clave</th><th>Volumes clave</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>mir_ui</code></td>
+            <td><code>mir_ui:latest</code></td>
+            <td>Servir la UI web y API para controlar servicios Docker.</td>
+            <td><code>8080</code></td>
+            <td><code>./frontend</code>, <code>./backend</code>, <code>/var/run/docker.sock</code></td>
+          </tr>
+          <tr>
+            <td><code>mir_ur_driver</code></td>
+            <td><code>mir-ur-driver:latest</code></td>
+            <td>Driver UR, MoveIt, rosbridge, action_bridge y cámara.</td>
+            <td><code>9090</code>, <code>50001-50004</code>, <code>50011-50014</code></td>
+            <td><code>/home/lab/pbd_system:/root/workspace</code>, <code>./scripts</code>, <code>./config</code></td>
+          </tr>
+          <tr>
+            <td><code>mir_camera</code></td>
+            <td><code>mir-camera:latest</code></td>
+            <td>Actualmente parado. La cámara se ejecuta dentro de <code>mir_ur_driver</code> para evitar problemas DDS.</td>
+            <td>—</td>
+            <td>—</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Puertos UR</h3>
+      <p>Cada brazo usa 4 puertos. Los valores por defecto están en <code>duo_ur_real.launch.py</code>:</p>
+      <table>
+        <thead>
+          <tr><th>Brazo</th><th>script_command</th><th>reverse</th><th>script_sender</th><th>trajectory</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Izquierdo</td><td>50004</td><td>50001</td><td>50002</td><td>50003</td></tr>
+          <tr><td>Derecho</td><td>50014</td><td>50011</td><td>50012</td><td>50013</td></tr>
+        </tbody>
+      </table>
+      <p>
+        En nuestro contenedor faltan los puertos <code>50002</code> y <code>50012</code> (<code>script_sender</code>).
+        Esto es sospechoso, aunque el reverse interface sí conecta, así que el robot pudo descargar el programa <code>external_control.urscript</code> en algún momento.
+      </p>
+    </section>
+
+    <section id="flujo">
+      <h2>4. Flujo de datos detallado</h2>
+      <div class="mermaid">
+sequenceDiagram
+    participant Browser as Navegador
+    participant UI as mir_ui :8080
+    participant RB as rosbridge :9090
+    participant AB as action_bridge
+    participant MG as /move_action (MoveIt)
+    participant CM as controller_manager
+    participant Robot as UR5e real
+
+    Browser->>UI: GET / (carga HTML/JS)
+    Browser->>RB: WebSocket connect
+    Browser->>RB: publica /mir/command (JSON)
+    RB->>AB: /mir/command std_msgs/String
+    AB->>MG: MoveGroup action goal
+    MG->>CM: FollowJointTrajectory action
+    CM->>Robot: puntos de trayectoria
+    Robot-->>CM: estado
+    CM-->>MG: resultado
+    MG-->>AB: resultado
+    AB-->>RB: /mir/status (JSON)
+    RB-->>Browser: /mir/status
+      </div>
+
+      <h3>Topics y actions relevantes</h3>
+      <table>
+        <thead>
+          <tr><th>Nombre</th><th>Tipo</th><th>Quién lo usa</th><th>Nota</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>/mir/command</code></td><td><code>std_msgs/String</code></td><td>UI → action_bridge</td><td>JSON con <code>command</code> y <code>args</code>.</td></tr>
+          <tr><td><code>/mir/status</code></td><td><code>std_msgs/String</code></td><td>action_bridge → UI</td><td>Eventos y resultados.</td></tr>
+          <tr><td><code>/move_action</code></td><td><code>moveit_msgs/action/MoveGroup</code></td><td>action_bridge → MoveIt</td><td>Usado para el brazo derecho.</td></tr>
+          <tr><td><code>/move_to_pose_in_frame</code></td><td><code>interfaces_pkg/action/MoveToPoseInFrame</code></td><td>action_bridge → moveit_interface_node</td><td>Solo soporta <code>left_ur_manipulator</code>.</td></tr>
+          <tr><td><code>/joint_states</code></td><td><code>sensor_msgs/JointState</code></td><td>UI, MoveIt</td><td>Publicado por <code>joint_state_broadcaster</code>.</td></tr>
+          <tr><td><code>/camera/color/image_raw/compressed</code></td><td><code>sensor_msgs/CompressedImage</code></td><td>UI</td><td>Cámara Orbbec.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="codigo">
+      <h2>5. Código y configuración clave</h2>
+
+      <h3>5.1 <code>docker-compose.yml</code></h3>
+      <p>Define los servicios. El servicio <code>ur_driver</code> monta nuestros scripts y config, y el workspace de pbd:</p>
+      <pre><code>ur_driver:
+  image: mir-ur-driver:latest
+  container_name: mir_ur_driver
+  network_mode: host
+  privileged: true
+  volumes:
+    - /home/lab/pbd_system:/root/workspace
+    - ./scripts/action_bridge.py:/action_bridge.py
+    - ./scripts/ur_entrypoint.sh:/entrypoint.sh
+    - ./config:/mir/config</code></pre>
+
+      <h3>5.2 <code>scripts/ur_entrypoint.sh</code></h3>
+      <p>Arranca todo dentro de <code>mir_ur_driver</code>:</p>
+      <ol>
+        <li>Lanza <code>duo_ur_real.launch.py</code>.</li>
+        <li><strong>Fix crítico:</strong> espera a que <code>/move_group</code> exista y fuerza <code>use_sim_time:=false</code>.
+          El launch file original lo hardcodea a <code>true</code>, lo cual rompe MoveIt en hardware real.</li>
+        <li>Lanza rosbridge en <code>:9090</code>.</li>
+        <li>Lanza <code>action_bridge.py</code>.</li>
+        <li>Activa <code>left_joint_trajectory_controller</code> y <code>right_joint_trajectory_controller</code>.</li>
+      </ol>
+
+      <h3>5.3 <code>scripts/action_bridge.py</code></h3>
+      <p>Recibe JSON por <code>/mir/command</code> y traduce a actions de ROS 2.</p>
+      <h4>Comandos soportados</h4>
+      <table>
+        <thead>
+          <tr><th>Comando</th><th>Args</th><th>Action resultante</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>move_arm</code></td><td><code>side</code>, <code>x</code>, <code>y</code>, <code>z</code>, <code>frame</code>, <code>velocity</code></td><td><code>/move_action</code> (right) o <code>/move_to_pose_in_frame</code> (left)</td></tr>
+          <tr><td><code>home</code></td><td><code>side</code>, <code>velocity</code></td><td><code>/move_action</code> con goal en joint-space a la pose segura guardada</td></tr>
+          <tr><td><code>stop_arm</code></td><td>—</td><td>Publica evento (no cancela goals aún)</td></tr>
+          <tr><td><code>close_hand</code></td><td><code>grasp_type</code>, <code>max_currents</code></td><td><code>/left_humanoid_hand/close_hand</code></td></tr>
+          <tr><td><code>open_hand</code></td><td>—</td><td><code>/left_humanoid_hand/open_hand</code></td></tr>
+        </tbody>
+      </table>
+      <p>
+        Para el brazo derecho, ahora obtiene la orientación actual del TCP vía TF y la mantiene en el goal.
+        Antes forzaba <code>Quaternion(0,0,0,1)</code>, lo que torcía la muñeca.
+      </p>
+
+      <h3>5.4 <code>duo_ur_real.launch.py</code> (proyecto original)</h3>
+      <p>Este archivo está en <code>/home/lab/pbd_system</code>; no lo modificamos. Sus defaults importantes:</p>
+      <table>
+        <thead>
+          <tr><th>Argumento</th><th>Default</th><th>Impacto</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>robot_ip_1</code></td><td><code>192.168.1.102</code></td><td>Brazo izquierdo</td></tr>
+          <tr><td><code>robot_ip_2</code></td><td><code>192.168.1.103</code></td><td>Brazo derecho</td></tr>
+          <tr><td><code>reverse_ip</code></td><td><code>192.168.1.75</code></td><td>IP del Jetson para que el robot se conecte de vuelta</td></tr>
+          <tr><td><code>headless_mode</code></td><td><code>false</code></td><td>Nosotros lo pasamos a <code>true</code></td></tr>
+          <tr><td><code>controllers_file</code></td><td><code>duo_ur_adv_controllers.yaml</code></td><td>Configura <code>right_joint_trajectory_controller</code> (no el <code>scaled</code>)</td></tr>
+          <tr><td><code>use_sim_time</code> en move_group</td><td><code>true</code> (hardcodeado)</td><td><span class="tag tag-danger">Bug</span> Nuestro entrypoint lo corrige a <code>false</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="hardcodeos">
+      <h2>6. Hardcodeos y problemas conocidos</h2>
+      <table>
+        <thead>
+          <tr><th>#</th><th>Problema</th><th>Ubicación</th><th>Gravedad</th><th>Solución propuesta</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td><code>move_group</code> usa <code>use_sim_time:=true</code> en hardware real.</td>
+            <td><code>duo_ur_real.launch.py</code></td>
+            <td><span class="tag tag-danger">Crítico</span></td>
+            <td>Corregido en <code>ur_entrypoint.sh</code> vía <code>ros2 param set</code>. A largo plazo: wrapper launch propio.</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td>MoveIt usa <code>right_joint_trajectory_controller</code> en lugar de <code>right_scaled_joint_trajectory_controller</code>.</td>
+            <td><code>duo_ur5e_torso_moveit_config/config/moveit_controllers.yaml</code></td>
+            <td><span class="tag tag-danger">Crítico</span></td>
+            <td>Cambiar a <code>right_scaled_joint_trajectory_controller</code>. Requiere copiar/modificar <code>moveit_controllers.yaml</code> en nuestro workspace.</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td>Faltan puertos <code>50002</code> y <code>50012</code> (<code>script_sender</code>).</td>
+            <td><code>ur_ros2_control_node</code></td>
+            <td><span class="tag tag-warning">Alto</span></td>
+            <td>Investigar por qué no escuchan. Puede ser un síntoma de que el driver no arrancó bien.</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td>Brazo izquierdo no conecta nunca.</td>
+            <td>Hardware / teach pendant / URCap</td>
+            <td><span class="tag tag-warning">Alto</span></td>
+            <td>Revisar teach pendant, IP, cable, URCap "External Control".</td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td><code>action_bridge</code> no cancela goals reales al recibir <code>stop_arm</code>.</td>
+            <td><code>action_bridge.py</code></td>
+            <td><span class="tag tag-warning">Alto</span></td>
+            <td>Implementar <code>cancel_goal</code> en el action client.</td>
+          </tr>
+          <tr>
+            <td>6</td>
+            <td><code>use_fake_hardware:=true</code> falla con <code>list.remove(x): x not in list</code>.</td>
+            <td><code>duo_ur_real.launch.py</code> línea ~511</td>
+            <td><span class="tag tag-warning">Alto</span></td>
+            <td>Bug: intenta remover <code>"tcp_pose_broadcaster"</code> en lugar de <code>"left_tcp_pose_broadcaster"</code> / <code>"right_tcp_pose_broadcaster"</code>.</td>
+          </tr>
+          <tr>
+            <td>7</td>
+            <td>La cámara debe correr dentro del mismo contenedor que el driver.</td>
+            <td>Arquitectura DDS</td>
+            <td><span class="tag tag-info">Medio</span></td>
+            <td>Actualmente se lanza manualmente dentro de <code>mir_ur_driver</code>. Incluirlo en el entrypoint o unir contenedores.</td>
+          </tr>
+          <tr>
+            <td>8</td>
+            <td>Calibración del robot no coincide con <code>default_kinematics.yaml</code>.</td>
+            <td><code>ur_robot_driver</code></td>
+            <td><span class="tag tag-info">Medio</span></td>
+            <td>Usar <code>ur_calibration</code> para extraer calibración real y pasarla al launch.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="simulacion">
+      <h2>7. Simulación</h2>
+      <p>Para dejar de probar con el robot físico, tenemos dos caminos:</p>
+
+      <h3>7.1 <code>use_fake_hardware:=true</code> (más fácil)</h3>
+      <p>El launch file lo soporta, pero tiene un bug. Si se corrige, arranca un mock de hardware que publica <code>/joint_states</code> y permite probar MoveIt sin robot.</p>
+      <div class="callout callout-warning">
+        <strong>Bug conocido:</strong> en <code>duo_ur_real.launch.py</code> línea ~511 se hace
+        <code>controllers_active.remove("tcp_pose_broadcaster")</code>, pero los nombres reales son
+        <code>left_tcp_pose_broadcaster</code> y <code>right_tcp_pose_broadcaster</code>. Hay que cambiar esa línea
+        o crear un launch wrapper propio.
+      </div>
+      <p>Comando de prueba (una vez corregido):</p>
+      <pre><code>ros2 launch duo_ur duo_ur_real.launch.py \
+  use_fake_hardware:=true \
+  launch_rviz:=false \
+  headless_mode:=true \
+  controller_spawner_timeout:=60</code></pre>
+
+      <h3>7.2 URSim (más realista)</h3>
+      <p>El simulador oficial de UR. Existen scripts en el workspace:</p>
+      <pre><code>/home/lab/Desktop/MIR/pbd_system/ros_ws/src/official_repos/Universal_Robots_ROS2_Driver/ur_robot_driver/scripts/start_ursim.sh</code></pre>
+      <p>Requiere levantar URSim (Docker/VM) y apuntar el driver a la IP del simulador. Es más fiel pero también más trabajo.</p>
+
+      <h3>7.3 Recomendación</h3>
+      <p>Usar <code>use_fake_hardware:=true</code> corregido para validar la arquitectura, el <code>action_bridge</code> y la UI. Luego pasar a URSim para validar trayectorias antes de volver al robot físico.</p>
+    </section>
+
+    <section id="roadmap">
+      <h2>8. Roadmap propuesto</h2>
+      <ol>
+        <li><strong>Simulación segura</strong>
+          <ul>
+            <li>Corregir/Crear launch para <code>use_fake_hardware:=true</code>.</li>
+            <li>Probar <code>action_bridge</code> y UI contra simulación.</li>
+          </ul>
+        </li>
+        <li><strong>Controlador correcto</strong>
+          <ul>
+            <li>Cambiar MoveIt a <code>right_scaled_joint_trajectory_controller</code>.</li>
+            <li>Validar en simulación y luego en robot real con movimientos muy pequeños.</li>
+          </ul>
+        </li>
+        <li><strong>Seguridad en la UI</strong>
+          <ul>
+            <li>Botón Home con confirmación.</li>
+            <li>Límite de velocidad máxima (ej. 5%).</li>
+            <li>Indicador de estado de conexión de cada brazo.</li>
+            <li>Botón de parada de emergencia que cancele goals reales.</li>
+          </ul>
+        </li>
+        <li><strong>Brazo izquierdo</strong>
+          <ul>
+            <li>Diagnóstico de hardware (teach pendant, URCap, red).</li>
+          </ul>
+        </li>
+        <li><strong>Integración MiR + mano + Nordbo</strong>
+          <ul>
+            <li>Panel de control del base MiR.</li>
+            <li>Panel de la mano (open/close).</li>
+            <li>Visualización del sensor F/T.</li>
+          </ul>
+        </li>
+      </ol>
+    </section>
+  </main>
+
+  <footer>
+    <p>Documento generado el 15 de junio de 2026 · MIR Suite · TUNI-PROJECT</p>
+  </footer>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+  </script>
+</body>
+</html>
