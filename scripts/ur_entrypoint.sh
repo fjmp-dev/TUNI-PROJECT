@@ -1,42 +1,31 @@
 #!/bin/bash
+# Entrypoint del contenedor mir_ur_driver.
+# Ya NO lanza el UR driver automáticamente — eso lo hace el usuario desde la UI
+# (endpoints /api/ur/start y /api/ur/stop).
+# Esto evita que el driver intente conectarse a brazos apagados o en estado
+# de error, y permite al usuario controlar cuándo se inicia.
 set -e
 source /opt/ros/humble/setup.bash
 source /root/workspace/ros_ws/install/setup.bash
 
-echo "[ur_driver] Launching duo_ur_real driver..."
-ros2 launch duo_ur duo_ur_real.launch.py \
-    launch_rviz:=false \
-    headless_mode:=true \
-    controller_spawner_timeout:=60 &
-UR_LAUNCH_PID=$!
+mkdir -p /var/log/mir
 
-# The duo_ur launch hard-codes use_sim_time:=True for move_group, which is wrong
-# for real hardware: it ignores /joint_states because no /clock is published.
-echo "[ur_driver] Waiting for /move_group to start, then forcing use_sim_time:=false..."
-for i in $(seq 1 60); do
-    if ros2 node info /move_group >/dev/null 2>&1; then
-        ros2 param set /move_group use_sim_time false >/dev/null 2>&1 && \
-            echo "[ur_driver] /move_group use_sim_time set to false" && break
-    fi
-    sleep 1
-done
+echo "[ur_driver] contenedor listo, UR driver NO se inicia automáticamente"
+echo "[ur_driver] el usuario debe llamar /api/ur/start desde la UI para lanzar duo_ur_real"
 
-echo "[ur_driver] Launching rosbridge on port 9090..."
-ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090 &
-ROSBRIDGE_PID=$!
+# Iniciar rosbridge siempre (es ligero y útil para diagnóstico)
+echo "[ur_driver] lanzando rosbridge en :9090..."
+ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090 > /var/log/mir/rosbridge.log 2>&1 &
 
-echo "[ur_driver] Launching action bridge..."
-python3 /action_bridge.py &
-BRIDGE_PID=$!
+# Iniciar action_bridge (también ligero)
+echo "[ur_driver] lanzando action_bridge..."
+python3 /action_bridge.py > /var/log/mir/action_bridge.log 2>&1 &
 
-echo "[ur_driver] Waiting 60s for arms to connect..."
-sleep 60
+# Iniciar joint_server (servidor HTTP en :9091 para la UI)
+echo "[ur_driver] lanzando joint_server en :9091..."
+python3 /joint_server.py > /var/log/mir/joint_server.log 2>&1 &
 
-echo "[ur_driver] Activating trajectory controllers..."
-timeout 30 ros2 control switch_controllers \
-    --deactivate left_cartesian_motion_controller right_cartesian_motion_controller \
-    --activate left_joint_trajectory_controller right_joint_trajectory_controller \
-    2>&1 || echo "[ur_driver] WARNING: controller switch timed out (may be OK)"
-
-echo "Started: UR driver PID=$UR_LAUNCH_PID, ROSBridge PID=$ROSBRIDGE_PID, Bridge PID=$BRIDGE_PID"
+# Mantener el contenedor vivo
+echo "[ur_driver] esperando señales..."
+trap "echo '[ur_driver] detenido'; kill 0; exit 0" SIGTERM SIGINT
 wait

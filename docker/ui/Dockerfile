@@ -11,3 +11,4 @@ COPY frontend/ ./static/
 EXPOSE 8080
 
 CMD ["python", "main.py"]
+

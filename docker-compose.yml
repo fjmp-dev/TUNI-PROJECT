@@ -30,6 +30,23 @@ services:
       - ROS_DOMAIN_ID=75
     restart: unless-stopped
 
+  mir:
+    build:
+      context: .
+      dockerfile: docker/mir/Dockerfile
+    image: mir-mir:latest
+    container_name: mir_mir
+    network_mode: host
+    volumes:
+      - /home/lab/pbd_system:/root/workspace
+      - ./logs:/var/log/mir
+      - ./scripts/mir_raw.py:/mir_raw.py
+      - ./scripts/mirror_node.py:/mirror_node.py
+      - ./scripts/mir_entrypoint.sh:/entrypoint.sh
+    environment:
+      - ROS_DOMAIN_ID=75
+    restart: unless-stopped
+
   ur_driver:
     build: ./docker/ur_driver
     image: mir-ur-driver:latest
@@ -44,6 +61,30 @@ services:
       - /usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/tegra
       - ./scripts/action_bridge.py:/action_bridge.py
       - ./scripts/ur_entrypoint.sh:/entrypoint.sh
+      - ./scripts/ur_start.sh:/ur_start.sh
+      - ./scripts/ur_stop.sh:/ur_stop.sh
+      - ./scripts/joint_server.py:/joint_server.py
+      - ./scripts/joint_mover.py:/joint_mover.py
+      - ./config:/mir/config
+    environment:
+      - ROS_DOMAIN_ID=75
+      - DISPLAY=:1
+    restart: unless-stopped
+
+  ur_driver_sim:
+    build: ./docker/ur_driver
+    image: mir-ur-driver:latest
+    container_name: mir_ur_driver_sim
+    network_mode: host
+    privileged: true
+    profiles: [sim]
+    volumes:
+      - /home/lab/pbd_system:/root/workspace
+      - ./logs:/var/log/mir
+      - /dev:/dev
+      - /usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/tegra
+      - ./scripts/action_bridge.py:/action_bridge.py
+      - ./scripts/sim_entrypoint.sh:/entrypoint.sh
       - ./config:/mir/config
     environment:
       - ROS_DOMAIN_ID=75

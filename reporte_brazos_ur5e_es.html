@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Avance MIR Suite - Brazos UR5e</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root { --tuni:#003580; --gold:#ffcd00; --bg:#fafbfc; --card:#fff; --text:#2d2d2d; --soft:#6b7280; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Segoe UI',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; font-size:15px; }
+  .hero { background:linear-gradient(135deg,var(--tuni) 0%,#1a4da0 100%); color:#fff; padding:44px 40px 36px; }
+  .hero h1 { font-size:26px; font-weight:600; }
+  .hero .sub { font-size:14px; opacity:0.8; margin-top:4px; }
+  .hero .bar { width:40px; height:3px; background:var(--gold); margin-top:14px; }
+  .wrap { max-width:800px; margin:0 auto; padding:32px 28px; }
+  .card { background:var(--card); border-radius:8px; padding:22px 26px; margin:18px 0; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  .card.l { border-left:4px solid var(--tuni); }
+  .card.ok { border-left-color:#16a34a; }
+  .card.warn { border-left-color:#d97706; }
+  h2 { font-size:20px; color:var(--tuni); margin:30px 0 12px; font-weight:600; }
+  h3 { font-size:16px; color:var(--tuni); margin:20px 0 8px; }
+  p { margin:10px 0; }
+  .soft { color:var(--soft); font-size:14px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:14px 0; }
+  .grid4 { display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin:12px 0; }
+  .stat { background:var(--card); border-radius:8px; padding:14px 18px; text-align:center; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  .stat .n { font-size:26px; font-weight:700; color:var(--tuni); }
+  .stat .l { font-size:12px; color:var(--soft); margin-top:2px; }
+  .tag { display:inline-block; padding:2px 10px; border-radius:12px; font-size:12px; font-weight:500; }
+  .tag-ok { background:#dcfce7; color:#166534; }
+  .tag-warn { background:#fef3c7; color:#92400e; }
+  .tag-err { background:#fee2e2; color:#991b1b; }
+  table { width:100%; border-collapse:collapse; margin:12px 0 16px; font-size:14px; }
+  th { background:var(--tuni); color:#fff; text-align:left; padding:8px 12px; font-weight:500; font-size:13px; }
+  td { padding:7px 12px; border-bottom:1px solid #e5e7eb; }
+  tr:nth-child(even) td { background:#f9fafb; }
+  .diag { background:#fff; border-radius:8px; padding:20px; margin:16px 0; box-shadow:0 1px 3px rgba(0,0,0,0.06); overflow-x:auto; }
+  .fig { text-align:center; font-size:12px; color:var(--soft); margin-top:4px; }
+  ul,ol { margin:8px 0 8px 22px; }
+  li { margin:5px 0; }
+  .footer { text-align:center; padding:24px; color:var(--soft); font-size:13px; border-top:1px solid #e5e7eb; margin-top:32px; }
+  hr { border:none; border-top:1px solid #e5e7eb; margin:24px 0; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>MIR Suite - Control de Brazos UR5e</h1>
+  <div class="sub">Tampere University - 22 de junio de 2026</div>
+  <div class="bar"></div>
+</div>
+
+<div class="wrap">
+
+<div class="grid4">
+  <div class="stat"><div class="n">2</div><div class="l">Brazos activos</div></div>
+  <div class="stat"><div class="n">12</div><div class="l">Joints en vivo</div></div>
+  <div class="stat"><div class="n">400</div><div class="l">Hz de lectura</div></div>
+  <div class="stat"><div class="n">0</div><div class="l">Archivos de Eemil tocados</div></div>
+</div>
+
+<div class="card l">
+  <p style="margin-top:0">
+    Los dos brazos UR5e estan montados sobre el torso del MiR200, pero en posicion invertida: apuntan hacia la espalda del robot en vez de hacia adelante. Tienen sus propias IPs (<code>192.168.1.102</code> izquierdo, <code>192.168.1.103</code> derecho) y se comunican con Kevin a traves de Ethernet. Hoy logramos ver sus 12 articulaciones en tiempo real en la pagina web y mover los codos desde el navegador con botones.
+  </p>
+</div>
+
+<h2>Como fluyen los datos del robot a la pagina</h2>
+
+<div class="diag">
+<div class="mermaid">
+flowchart LR
+    L["Brazo izquierdo<br/>192.168.1.102"] -->|"posicion 400Hz"| D["UR Driver<br/>contenedor mir_ur_driver"]
+    R["Brazo derecho<br/>192.168.1.103"] -->|"posicion 400Hz"| D
+    D -->|"topic /joint_states"| J["joint_server.py<br/>servidor HTTP :9091"]
+    J -->|"JSON cada 200ms"| B["Backend FastAPI<br/>:8080/api/ur/joints"]
+    B -->|"datos en vivo"| U["Pagina web<br/>panel de brazos"]
+    U -->|"boton presionado<br/>POST /api/ur/move"| B
+    B -->|"ejecuta comando<br/>de movimiento"| D
+    D -->|"envia trayectoria<br/>al brazo"| L
+    D -->|"envia trayectoria<br/>al brazo"| R
+    style L fill:#e8f5e9,stroke:#16a34a
+    style R fill:#e8f5e9,stroke:#16a34a
+    style D fill:#e3f2fd,stroke:#003580
+    style J fill:#fff3e0,stroke:#d97706
+    style B fill:#f3e5f5,stroke:#7b1fa2
+    style U fill:#e3f2fd,stroke:#003580
+</div>
+<div class="fig">Figura 1: Datos de posicion (flechas verdes) y comandos de movimiento (flechas naranjas)</div>
+</div>
+
+<div class="card ok">
+  <h3>Paso 1: Leer los joints sin reiniciar nada</h3>
+  <p>
+    El driver UR de Eemil (<code>duo_ur_real.launch.py</code>) ya estaba corriendo en nuestro contenedor <code>mir_ur_driver</code> y publicando las posiciones de los 12 joints en el topic <code>/joint_states</code> a 400 Hz. El reto era hacer que esos datos llegaran a la pagina web.
+  </p>
+  <p>
+    Intentamos dos cosas que no funcionaron bien: conectarnos al rosbridge desde JavaScript (fallaba por un problema de calidad de servicio) y ejecutar un proceso nuevo por cada consulta (demasiado lento, ~200ms por peticion). La solucion fue crear <code>joint_server.py</code>, un mini-servidor HTTP que vive dentro del contenedor, se suscribe a los joints una sola vez y cada que la pagina pregunta, responde con los ultimos valores en JSON. Esto es 10 veces mas rapido y no gasta recursos.
+  </p>
+  <p class="soft">
+    Lo desplegamos sin reiniciar el contenedor (para no perder la conexion con los brazos). Usamos <code>docker cp</code> para copiar el archivo y <code>docker exec -d</code> para lanzarlo en segundo plano.
+  </p>
+</div>
+
+<div class="card ok">
+  <h3>Paso 2: Mover los codos desde la pagina</h3>
+  <p>
+    Una vez que ya veiamos los joints, necesitabamos poder moverlos. Creamos <code>joint_mover.py</code>, un script que recibe tres parametros -- que brazo, que articulacion, y cuanto mover -- y se comunica con el controlador del robot para ejecutar la trayectoria.
+  </p>
+  <p>
+    En la pagina agregamos 8 botones organizados por brazo: paso grande (+/- 0.1 radianes, como 6 grados) y paso chico (+/- 0.01 radianes, como medio grado). Los botones llaman al backend, que ejecuta el script dentro del contenedor, y el brazo se mueve.
+  </p>
+  <p class="soft">
+    Por seguridad, solo movemos los codos. Las munecas no se tocan. Ademas cada boton tiene un delay para que no puedas enviar dos comandos al mismo tiempo.
+  </p>
+</div>
+
+<h2>Los problemas que tuvimos</h2>
+
+<div class="diag">
+<div class="mermaid">
+flowchart TD
+    A["Queriamos mover los codos"] --> B{"El brazo se movia?"}
+    B -->|"NO: controller decia OK<br/>pero robot no se movia"| C1["Problema 1: programa<br/>de control detenido"]
+    C1 --> D1["resend_robot_program<br/>reenvia el script al robot"]
+    B -->|"NO: goal rejected<br/>en brazo derecho"| C2["Problema 2: controller<br/>apagado por seguridad"]
+    C2 --> D2["reactivamos el controller<br/>con switch_controllers"]
+    B -->|"NO: scaled controller<br/>nunca terminaba"| C3["Problema 3: controller<br/>escalado roto"]
+    C3 --> D3["usamos el controller<br/>estandar de ROS2"]
+    D1 --> E["AMBOS BRAZOS<br/>FUNCIONAN"]
+    D2 --> E
+    D3 --> E
+    B -->|"SI"| E
+    style A fill:#fff3e0,stroke:#d97706
+    style C1 fill:#fee2e2,stroke:#991b1b
+    style C2 fill:#fee2e2,stroke:#991b1b
+    style C3 fill:#fee2e2,stroke:#991b1b
+    style D1 fill:#e3f2fd,stroke:#003580
+    style D2 fill:#e3f2fd,stroke:#003580
+    style D3 fill:#e3f2fd,stroke:#003580
+    style E fill:#dcfce7,stroke:#16a34a
+</div>
+<div class="fig">Figura 2: Los tres problemas que impidieron mover los brazos y como los resolvimos</div>
+</div>
+
+<table>
+  <tr><th>Problema</th><th>Que pasaba</th><th>Como lo arreglamos</th></tr>
+  <tr>
+    <td>1. Programa de control detenido</td>
+    <td>El controller reportaba "movimiento exitoso" pero el brazo fisico no se movia ni un milimetro. El programa URScript dentro del robot se habia detenido.</td>
+    <td>Agregamos una llamada al servicio <code>resend_robot_program</code> que reenvia el script de control al robot. Ahora se hace automatico al iniciar el driver y tambien como recuperacion si un movimiento falla.</td>
+  </tr>
+  <tr>
+    <td>2. Controller apagado en brazo derecho</td>
+    <td>El brazo derecho rechazaba todos los comandos con "goal rejected". El <code>right_controller_stopper</code> (un sistema de seguridad interno del UR driver) habia apagado el controlador.</td>
+    <td>Agregamos una reactivacion automatica del controlador con <code>ros2 control switch_controllers</code>. El script de inicio lo intenta 3 veces con pausas de 3 segundos.</td>
+  </tr>
+  <tr>
+    <td>3. Scaled controller roto</td>
+    <td>Habia un controlador "escalado" que supuestamente es mas seguro, pero estaba roto: aceptaba comandos pero jamas los ejecutaba. Se quedaba esperando respuesta para siempre.</td>
+    <td>Volvimos al controlador estandar de ROS2 (<code>joint_trajectory_controller</code>), que funciona perfectamente. El escalado lo dejamos apagado.</td>
+  </tr>
+</table>
+
+<div class="card ok">
+  <h3>El sistema de recuperacion automatica</h3>
+  <p>
+    Para que la pagina sea confiable, el backend detecta automaticamente cuando un movimiento falla. Si el error es "goal rejected", intenta recuperarse: reenvia el programa de control al robot, reactiva el controlador, espera un segundo, y reintenta el movimiento. Si funciona, la pagina muestra "OK (recovered)". Si no, muestra el error especifico para que sepas que hacer.
+  </p>
+</div>
+
+<h2>Movimientos que verificamos hoy</h2>
+
+<table>
+  <tr><th>Brazo</th><th>Articulacion</th><th>Movimiento</th><th>Desde</th><th>Hasta</th><th>Resultado</th></tr>
+  <tr><td>Izquierdo</td><td>codo</td><td>+0.01 rad</td><td>1.262</td><td>1.272</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+  <tr><td>Izquierdo</td><td>codo</td><td>+0.10 rad</td><td>1.272</td><td>1.372</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+  <tr><td>Izquierdo</td><td>codo</td><td>-0.05 rad</td><td>1.372</td><td>1.322</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+  <tr><td>Derecho</td><td>codo</td><td>+0.01 rad</td><td>-0.845</td><td>-0.835</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+  <tr><td>Derecho</td><td>codo</td><td>+0.10 rad</td><td>-0.835</td><td>-0.735</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+  <tr><td>Derecho</td><td>codo</td><td>-0.05 rad</td><td>-0.735</td><td>-0.785</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+  <tr><td>Derecho</td><td>codo</td><td>+0.10 rad</td><td>-0.845</td><td>-0.745</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+</table>
+
+<p class="soft">
+  Todos los movimientos se ejecutaron con precision. Las munecas no se movieron en ninguna prueba. El sistema respeta exactamente el delta que le pedimos, sin desviaciones.
+</p>
+
+<h2>Lo que aprendimos</h2>
+
+<div class="grid2">
+  <div class="card l">
+    <h3>Sobre los robots</h3>
+    <p>Los UR5e que tenemos usan PolyScopeX (el software nuevo de Universal Robots). Esto significa que no tienen el servidor de dashboard clasico (solo disponible en e-Series). Para recuperar al robot de un error, hay que hacerlo manualmente desde la tablet.</p>
+  </div>
+  <div class="card l">
+    <h3>Sobre la arquitectura</h3>
+    <p>Para datos en tiempo real, un servidor HTTP persistente dentro del contenedor es mucho mejor que ejecutar procesos nuevos por cada consulta. Es 10 veces mas rapido, no gasta recursos, y se puede desplegar sin reiniciar el contenedor.</p>
+  </div>
+</div>
+
+<hr>
+
+<h2>Preguntas para el tutor</h2>
+
+<div class="card ok">
+  <ol>
+    <li>Ahora que los codos funcionan, debemos expandir el control a los otros joints (hombro, muneca) o primero probamos una trayectoria completa con MoveIt?</li>
+    <li>Los sensores de fuerza/torque Nordbo (192.168.1.112/113) ya responden a ping. Es buen momento para integrarlos en la pagina?</li>
+    <li>El MiR200 necesita revision fisica (errores 9000 de seguridad). Hay alguien que pueda revisarlo esta semana?</li>
+  </ol>
+</div>
+
+</div>
+
+<div class="footer">
+  MIR Suite - Tampere University - 22 de junio de 2026
+</div>
+
+<script>mermaid.initialize({startOnLoad:true,theme:'neutral',flowchart:{useMaxWidth:true,htmlLabels:true}});</script>
+</body>
+</html>

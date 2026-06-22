@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MIR Suite - Reporte de Sesion - 22 Junio 2026</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root { --tuni:#003580; --gold:#ffcd00; --bg:#fafbfc; --card:#fff; --text:#2d2d2d; --soft:#6b7280; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Segoe UI',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; font-size:15px; }
+  .hero { background:linear-gradient(135deg,var(--tuni) 0%,#1a4da0 100%); color:#fff; padding:48px 0 40px; }
+  .hero .in { max-width:800px; margin:0 auto; padding:0 28px; }
+  .hero h1 { font-size:28px; font-weight:600; }
+  .hero .sub { font-size:14px; opacity:0.85; margin-top:4px; }
+  .hero .bar { width:50px; height:3px; background:var(--gold); margin-top:16px; }
+  .wrap { max-width:800px; margin:0 auto; padding:32px 28px; }
+  .card { background:var(--card); border-radius:8px; padding:22px 26px; margin:18px 0; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  .card.l { border-left:4px solid var(--tuni); }
+  .card.ok { border-left-color:#16a34a; }
+  .card.warn { border-left-color:#d97706; }
+  .part-header { background:var(--tuni); color:#fff; padding:20px 28px; margin:36px 0 8px; border-radius:6px; }
+  .part-header h2 { color:#fff; margin:0; font-size:18px; }
+  .part-header .num { display:inline-block; background:var(--gold); color:var(--tuni); width:28px; height:28px; line-height:28px; text-align:center; border-radius:50%; font-weight:700; font-size:15px; margin-right:10px; }
+  h2 { font-size:20px; color:var(--tuni); margin:30px 0 12px; font-weight:600; }
+  h3 { font-size:16px; color:var(--tuni); margin:20px 0 8px; }
+  p { margin:10px 0; }
+  .soft { color:var(--soft); font-size:14px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:14px 0; }
+  .grid4 { display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin:12px 0; }
+  .stat { background:var(--card); border-radius:8px; padding:14px 18px; text-align:center; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  .stat .n { font-size:26px; font-weight:700; color:var(--tuni); }
+  .stat .l { font-size:12px; color:var(--soft); margin-top:2px; }
+  .tag { display:inline-block; padding:2px 10px; border-radius:12px; font-size:12px; font-weight:500; }
+  .tag-ok { background:#dcfce7; color:#166534; }
+  .tag-warn { background:#fef3c7; color:#92400e; }
+  .tag-err { background:#fee2e2; color:#991b1b; }
+  table { width:100%; border-collapse:collapse; margin:12px 0 16px; font-size:14px; }
+  th { background:var(--tuni); color:#fff; text-align:left; padding:8px 12px; font-weight:500; font-size:13px; }
+  td { padding:7px 12px; border-bottom:1px solid #e5e7eb; }
+  tr:nth-child(even) td { background:#f9fafb; }
+  .diag { background:#fff; border-radius:8px; padding:20px; margin:16px 0; box-shadow:0 1px 3px rgba(0,0,0,0.06); overflow-x:auto; }
+  .fig { text-align:center; font-size:12px; color:var(--soft); margin-top:6px; }
+  ul,ol { margin:8px 0 8px 22px; }
+  li { margin:5px 0; }
+  .footer { text-align:center; padding:28px; color:var(--soft); font-size:13px; border-top:1px solid #e5e7eb; margin-top:36px; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="in">
+    <h1>MIR Suite - Reporte de Sesion</h1>
+    <div class="sub">Tampere University - Faculty of Engineering and Natural Sciences</div>
+    <div class="sub">22 de junio de 2026</div>
+    <div class="bar"></div>
+  </div>
+</div>
+
+<div class="wrap">
+
+<div class="grid4">
+  <div class="stat"><div class="n">2</div><div class="l">Brazos controlados</div></div>
+  <div class="stat"><div class="n">12</div><div class="l">Joints en vivo</div></div>
+  <div class="stat"><div class="n">199</div><div class="l">Topics MiR</div></div>
+  <div class="stat"><div class="n">7</div><div class="l">Bugs corregidos</div></div>
+</div>
+
+<!-- ============================================================ -->
+<!-- PARTE 1: MiR200 -->
+<!-- ============================================================ -->
+
+<div class="part-header">
+  <h2><span class="num">1</span> Integracion del MiR200</h2>
+</div>
+
+<div class="card l">
+  <p style="margin-top:0">
+    El MiR200 es un robot movil que navega por el laboratorio de forma autonoma. Tiene su propio sistema ROS1 interno con 199 topics de telemetria: posicion, velocidad, escaneres laser, mapa, bateria, estado del robot, camaras, sensores. Ademas tiene una API REST en el puerto 80 que nos permite consultar datos basicos sin necesidad de ROS.
+  </p>
+</div>
+
+<h3>Como trajimos los datos del MiR a nuestro sistema</h3>
+
+<div class="diag">
+<div class="mermaid">
+flowchart LR
+    M["MiR200<br/>192.168.1.13"] -->|"WebSocket<br/>ROS1 rosbridge<br/>puerto 9090"| B["Contenedor mir_mir<br/>Codigo: mir_raw.py<br/>(Eemil, sin modificar)"]
+    B -->|"Convierte mensajes<br/>ROS1 a ROS2<br/>199 topics"| R["ROS2 en Kevin<br/>ROS_DOMAIN_ID=75"]
+    M -->|"API REST<br/>puerto 80"| P["Backend FastAPI<br/>:8080/api/mir/status"]
+    P -->|"JSON cada 4s<br/>bateria, posicion, estado"| U["Pagina web<br/>Panel MiR"]
+    R -->|"topics ROS2<br/>cuando el robot<br/>esta estable"| U
+</div>
+<div class="fig">Figura 1: Dos rutas de datos. El bridge ROS1->ROS2 y la API REST directa.</div>
+</div>
+
+<div class="card ok">
+  <h3>El contenedor mir_mir y el bridge de Eemil</h3>
+  <p>
+    Creamos un contenedor Docker nuevo (<code>mir_mir</code>) dedicado exclusivamente a la comunicacion con el MiR. Dentro corre el codigo <code>mir_raw.py</code> que Eemil escribio, sin modificarlo. Lo montamos como volumen para respetar la regla de no tocar proyectos originales.
+  </p>
+  <p>
+    El bridge hace lo siguiente: se conecta al rosbridge del MiR via WebSocket, descubre automaticamente los 199 topics, y por cada uno crea un publicador equivalente en ROS2. Asi, los datos del MiR aparecen como topics nativos de ROS2 en Kevin.
+  </p>
+</div>
+
+<div class="card warn">
+  <h3>El problema: el MiR es inestable</h3>
+  <p>
+    El MiR200 pierde la conexion de red con frecuencia, especialmente cuando esta en modo Running. Cuando esto pasa, <code>mir_raw.py</code> se queda "vivo pero sin datos": el proceso sigue ejecutandose pero nunca recibe mas mensajes. No se muere, no se reconecta -- solo se congela. Y como no se muere, el ciclo de reinicio del entrypoint nunca se activa.
+  </p>
+  <p>
+    <strong>Solucion: un watchdog.</strong> Escribimos un script (<code>mir_watchdog.sh</code>) que corre en segundo plano y revisa cada 30 segundos si el bridge esta realmente procesando datos. Si pasan 90 segundos sin actividad, el watchdog mata el proceso. El entrypoint del contenedor tiene un <code>while true</code> que lo relanza automaticamente. Cero modificaciones al codigo de Eemil: solo matamos y relanzamos.
+  </p>
+  <div class="diag">
+<div class="mermaid">
+flowchart TD
+    A["Bridge corriendo<br/>recibe datos del MiR"] --> B{"Pasan 90s<br/>sin datos nuevos?"}
+    B -->|"no"| A
+    B -->|"si"| C["Watchdog:<br/>mata el proceso"]
+    C --> D["Entrypoint:<br/>relanza el bridge"]
+    D --> E["Bridge reconecta<br/>al rosbridge del MiR"]
+    E --> A
+</div>
+<div class="fig">Figura 2: El watchdog detecta, mata, y el entrypoint relanza automaticamente.</div>
+  </div>
+</div>
+
+<div class="card ok">
+  <h3>El panel del MiR en la pagina web</h3>
+  <p>
+    Cuando el MiR esta en Pause, su API REST responde correctamente. Construimos un proxy en el backend (<code>/api/mir/status</code>) y un panel en la pagina que muestra:
+  </p>
+  <table>
+    <tr><th>Dato</th><th>Visualizacion</th></tr>
+    <tr><td>Bateria</td><td>Porcentaje con barra de color: verde > 40%, naranja 20-40%, roja < 20%</td></tr>
+    <tr><td>Tiempo restante</td><td>Formato legible: "3h 15m"</td></tr>
+    <tr><td>Posicion</td><td>Coordenadas X, Y y orientacion en grados</td></tr>
+    <tr><td>Velocidad</td><td>Lineal (m/s) y angular (rad/s)</td></tr>
+    <tr><td>Estado</td><td>Badge de color: Pause (gris), Ready (azul), Running (verde), Error (rojo)</td></tr>
+    <tr><td>Modo / Mision</td><td>Texto descriptivo</td></tr>
+    <tr><td>Errores</td><td>Cantidad, en rojo si hay > 0. Boton Actualizar manual.</td></tr>
+  </table>
+  <p>
+    La pagina consulta la API cada 4 segundos. Si el MiR no responde temporalmente, guarda los ultimos datos buenos por 60 segundos con una marca de "datos viejos", para que no se pierda todo de golpe.
+  </p>
+</div>
+
+<div class="card warn">
+  <h3>Errores internos del MiR200</h3>
+  <table>
+    <tr><th>Codigo</th><th>Modulo</th><th>Descripcion</th><th>Severidad</th></tr>
+    <tr><td>10713</td><td>Motorcontroller</td><td>Large encoder delay detected -- retraso en el sensor de las ruedas. Probablemente un cable del encoder esta suelto o rozando con una rueda.</td><td><span class="tag tag-warn">Media</span></td></tr>
+    <tr><td>9000</td><td>Safety System / Communication</td><td>SICK Safety PLC is OK -- el PLC de seguridad SICK no responde a los heartbeats del sistema. Es como si el "cerebro de seguridad" estuviera desconectado.</td><td><span class="tag tag-err">Critica</span></td></tr>
+    <tr><td>9000</td><td>Safety System / Emergency Stop</td><td>Emergency Stop is OK -- el boton de emergencia no responde. La cadena de seguridad esta interrumpida.</td><td><span class="tag tag-err">Critica</span></td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Comportamiento de la red segun el estado del robot</h3>
+  <table>
+    <tr><th>Estado</th><th>Ping</th><th>REST API</th><th>Rosbridge</th><th>Topics ROS</th></tr>
+    <tr><td>Pause</td><td><span class="tag tag-ok">Responde</span></td><td><span class="tag tag-ok">Responde</span></td><td><span class="tag tag-warn">Intermitente</span></td><td><span class="tag tag-err">Sin datos</span></td></tr>
+    <tr><td>Running / Play</td><td><span class="tag tag-err">Cae</span></td><td><span class="tag tag-err">Cae</span></td><td><span class="tag tag-err">Cae</span></td><td><span class="tag tag-err">Cae</span></td></tr>
+    <tr><td>Error</td><td><span class="tag tag-warn">Variable</span></td><td><span class="tag tag-warn">Variable</span></td><td><span class="tag tag-err">Cae</span></td><td><span class="tag tag-err">Sin datos</span></td></tr>
+  </table>
+  <p style="margin-top:14px">
+    <strong>Conclusion:</strong> El robot solo es estable estando en Pause. Los errores 9000 hacen que al activar el robot, el sistema interno se sobrecargue y los servicios de red colapsen. No es culpa de nuestro software ni de la red local -- es un problema fisico interno del MiR.
+  </p>
+</div>
+
+<div class="card ok">
+  <h3>Recomendacion para recuperar el MiR</h3>
+  <ol>
+    <li>Reinicio fisico completo: desde la tablet, Service > Shutdown, esperar 1 minuto, encender con el boton lateral</li>
+    <li>Si los errores 9000 persisten, revisar los cables internos del SICK Safety PLC y del boton de emergencia</li>
+    <li>Si nada funciona, contactar soporte de MiR -- posible dano en el hardware del PLC de seguridad</li>
+  </ol>
+  <p class="soft">Documento tecnico completo: <code>docs/mir_connectivity_issue.md</code></p>
+</div>
+
+<!-- ============================================================ -->
+<!-- PARTE 2: UR5e -->
+<!-- ============================================================ -->
+
+<div class="part-header">
+  <h2><span class="num">2</span> Control de los Brazos UR5e</h2>
+</div>
+
+<div class="card l">
+  <p style="margin-top:0">
+    Los dos brazos UR5e estan montados sobre el torso del MiR200, <strong>en posicion invertida</strong>: apuntan hacia la espalda del robot, no hacia el frente. Cada brazo tiene su propia IP (<code>192.168.1.102</code> izquierdo, <code>192.168.1.103</code> derecho) y 6 articulaciones. Hoy logramos ver las 12 articulaciones en tiempo real en la pagina web y mover los codos de ambos brazos con botones desde el navegador.
+  </p>
+</div>
+
+<h3>Como fluyen los datos entre los brazos y la pagina</h3>
+
+<div class="diag">
+<div class="mermaid">
+flowchart LR
+    L["Brazo izquierdo<br/>192.168.1.102"] -->|"envia posicion<br/>400 veces/seg"| D["UR Driver<br/>contenedor mir_ur_driver"]
+    R["Brazo derecho<br/>192.168.1.103"] -->|"envia posicion<br/>400 veces/seg"| D
+    D -->|"topic /joint_states"| J["joint_server.py<br/>servidor HTTP :9091"]
+    J -->|"JSON cada 200ms"| B["Backend :8080<br/>api/ur/joints"]
+    B -->|"datos en vivo"| U["Pagina web<br/>panel de brazos"]
+    U -->|"boton presionado<br/>POST /api/ur/move"| B
+    B -->|"ejecuta comando<br/>de movimiento"| D
+    D -->|"envia trayectoria"| L
+    D -->|"envia trayectoria"| R
+</div>
+<div class="fig">Figura 3: Las flechas verdes son datos de posicion (lectura). Las naranjas son comandos de movimiento (escritura).</div>
+</div>
+
+<h3>Paso 1: Ver los joints en la pagina</h3>
+
+<div class="card ok">
+  <p>
+    El driver UR de Eemil (<code>duo_ur_real.launch.py</code>) ya publicaba las posiciones de los 12 joints en el topic <code>/joint_states</code> a 400 Hz. El reto era hacer que esos datos llegaran a la pagina web de forma confiable.
+  </p>
+  <p>
+    <strong>Lo que intentamos y no funciono:</strong> conectarnos al rosbridge desde JavaScript (fallaba por problemas de calidad de servicio QoS) y ejecutar un proceso nuevo por cada consulta (demasiado lento, casi un segundo por peticion).
+  </p>
+  <p>
+    <strong>Lo que si funciono:</strong> crear <code>joint_server.py</code>, un mini-servidor HTTP que vive dentro del mismo contenedor del driver. Se suscribe a <code>/joint_states</code> una sola vez, guarda el ultimo mensaje en memoria, y cuando la pagina pregunta responde con un JSON que contiene los 12 valores. Esto es 10 veces mas rapido que la alternativa y no gasta recursos del sistema.
+  </p>
+  <p class="soft">
+    Ventaja clave: lo desplegamos sin reiniciar el contenedor. Usamos <code>docker cp</code> para copiar el archivo y <code>docker exec -d</code> para lanzarlo en segundo plano. El driver UR siguio corriendo sin interrupcion, los brazos nunca se desconectaron.
+  </p>
+</div>
+
+<h3>Paso 2: Mover los codos desde la pagina</h3>
+
+<div class="card ok">
+  <p>
+    Una vez que veiamos los joints, necesitabamos poder moverlos. Creamos <code>joint_mover.py</code>, un script que recibe tres parametros -- que brazo, que articulacion, que tanto mover -- y le envia la trayectoria al controlador del robot.
+  </p>
+  <p>
+    En la pagina agregamos <strong>8 botones</strong> para controlar los codos. Estan organizados por brazo y por tamano de paso:
+  </p>
+  <table>
+    <tr><th>Brazo</th><th>Paso grande</th><th>Paso chico</th></tr>
+    <tr><td>Izquierdo</td><td>-0.1 / +0.1 rad (~6 grados)</td><td>-0.01 / +0.01 rad (~0.6 grados)</td></tr>
+    <tr><td>Derecho</td><td>-0.1 / +0.1 rad (~6 grados)</td><td>-0.01 / +0.01 rad (~0.6 grados)</td></tr>
+  </table>
+  <p class="soft">
+    Por seguridad, solo movemos los codos en esta etapa. Las munecas no se tocan. El sistema respeta exactamente el delta que le pedimos.
+  </p>
+</div>
+
+<h3>Los tres problemas que tuvimos que resolver</h3>
+
+<div class="diag">
+<div class="mermaid">
+flowchart TD
+    A["Queriamos mover un codo"] --> B{"El brazo se movio?"}
+    B -->|"NO: controller decia OK<br/>pero robot no se movia"| C1["Problema 1:<br/>programa de control<br/>detenido en el robot"]
+    B -->|"NO: goal rejected<br/>solo en brazo derecho"| C2["Problema 2:<br/>controlador apagado<br/>por seguridad interna"]
+    B -->|"NO: controller aceptaba<br/>pero nunca terminaba"| C3["Problema 3:<br/>scaled controller<br/>roto"]
+    C1 --> D1["resend_robot_program:<br/>reenvia el script<br/>de control al robot"]
+    C2 --> D2["switch_controllers:<br/>reactiva el controlador<br/>que la seguridad apago"]
+    C3 --> D3["Usamos el controller<br/>estandar de ROS2<br/>que si funciona"]
+    D1 --> E["BRAZO SE MUEVE<br/>exactamente lo pedido"]
+    D2 --> E
+    D3 --> E
+    B -->|"SI"| E
+</div>
+<div class="fig">Figura 4: Los tres obstaculos y como los resolvimos.</div>
+</div>
+
+<table>
+  <tr><th>Problema</th><th>Que pasaba</th><th>Solucion</th></tr>
+  <tr>
+    <td><strong>1. Programa detenido</strong></td>
+    <td>El controller reportaba "movimiento exitoso" pero el brazo fisico no se movia ni un milimetro. El script de control (URScript) dentro del robot se habia detenido. El controller pensaba que todo estaba bien porque la tolerancia de posicion (0.1 rad) es mayor que el movimiento comandado (0.01 rad).</td>
+    <td>Agregamos <code>resend_robot_program</code>, un servicio de ROS que reenvia el script de control externo al robot. Se ejecuta automaticamente al iniciar el driver y tambien como recuperacion si un movimiento falla.</td>
+  </tr>
+  <tr>
+    <td><strong>2. Controlador apagado (brazo derecho)</strong></td>
+    <td>El brazo derecho rechazaba todos los comandos con "goal rejected". El <code>right_controller_stopper</code>, un sistema de seguridad del UR driver, habia apagado el controlador de trayectoria durante la conexion inicial.</td>
+    <td>Agregamos una reactivacion automatica del controlador con <code>ros2 control switch_controllers</code>. El script de inicio del driver lo intenta 3 veces con pausas. El backend tambien lo intenta como recuperacion.</td>
+  </tr>
+  <tr>
+    <td><strong>3. Scaled controller roto</strong></td>
+    <td>Habia un controlador "escalado" que en teoria es mas seguro, pero descubrimos que esta roto: acepta comandos pero jamas los ejecuta. El resultado nunca llega y el sistema se queda esperando para siempre.</td>
+    <td>Desactivamos el scaled controller y usamos el <code>joint_trajectory_controller</code> estandar de ROS2, que funciona perfectamente. El scaled queda apagado hasta que alguien lo arregle.</td>
+  </tr>
+</table>
+
+<div class="card ok">
+  <h3>Recuperacion automatica</h3>
+  <p>
+    Para que la pagina sea confiable sin intervencion manual, el backend ahora detecta cuando un movimiento falla. Si el error es "goal rejected", intenta recuperarse solo: reenvia el programa de control al robot, reactiva el controlador, espera un segundo, y reintenta el movimiento. Si funciona, la pagina responde "OK (recovered)". Si no, muestra el error para que sepas que paso.
+  </p>
+</div>
+
+<h3>Movimientos que verificamos hoy</h3>
+
+<table>
+  <tr><th>Brazo</th><th>Articulacion</th><th>Movimiento</th><th>Desde</th><th>Hasta</th><th>Precision</th></tr>
+  <tr><td>Izquierdo</td><td>codo</td><td>+0.01 rad</td><td>1.262</td><td>1.272</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+  <tr><td>Izquierdo</td><td>codo</td><td>+0.10 rad</td><td>1.272</td><td>1.372</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+  <tr><td>Izquierdo</td><td>codo</td><td>-0.05 rad</td><td>1.372</td><td>1.322</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+  <tr><td>Derecho</td><td>codo</td><td>+0.01 rad</td><td>-0.845</td><td>-0.835</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+  <tr><td>Derecho</td><td>codo</td><td>+0.10 rad</td><td>-0.835</td><td>-0.735</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+  <tr><td>Derecho</td><td>codo</td><td>-0.05 rad</td><td>-0.735</td><td>-0.785</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+  <tr><td>Derecho</td><td>codo</td><td>+0.10 rad</td><td>-0.845</td><td>-0.745</td><td><span class="tag tag-ok">Exacto</span></td></tr>
+</table>
+
+<p class="soft">
+  Todos los movimientos se ejecutaron con precision. Las munecas nunca se movieron (verificado). El sistema respeta exactamente el delta comandado.
+</p>
+
+<div class="grid2">
+  <div class="card l">
+    <h3>Sobre los robots</h3>
+    <p>Los UR5e usan PolyScopeX (software nuevo de Universal Robots). Esto significa que no tienen el servidor de dashboard clasico -- ese solo existe en los e-Series. Para recuperar al robot de un error, hay que hacerlo manualmente desde la tablet. Para control normal, no es problema: el driver funciona en modo headless.</p>
+  </div>
+  <div class="card l">
+    <h3>Sobre la arquitectura</h3>
+    <p>Un servidor HTTP persistente dentro del contenedor es mucho mejor que lanzar procesos nuevos por cada consulta. Es 10 veces mas rapido, gasta menos recursos, y se puede desplegar sin reiniciar el contenedor -- critico cuando hay conexiones activas con los brazos que no queremos perder.</p>
+  </div>
+</div>
+
+<hr>
+
+<h2>Preguntas para el tutor</h2>
+
+<div class="card ok">
+  <ol>
+    <li>El MiR200 tiene errores de seguridad criticos (codigo 9000) que requieren intervencion fisica. Hay alguien que pueda revisarlo esta semana o debemos contactar a soporte de MiR?</li>
+    <li>Ahora que los codos se mueven, debemos expandir el control a otros joints (hombro, muneca) o primero probar una trayectoria completa con MoveIt?</li>
+    <li>Los sensores Nordbo de fuerza/torque (192.168.1.112 y 113) ya responden en la red. Es buen momento para integrarlos en la pagina?</li>
+    <li>Podemos hacer las pruebas de integracion completas en simulacion mientras el MiR se repara?</li>
+  </ol>
+</div>
+
+</div>
+
+<div class="footer">
+  MIR Suite - Tampere University - 22 de junio de 2026<br>
+  Elaborado por Kevin (estudiante) con asistencia de opencode
+</div>
+
+<script>mermaid.initialize({startOnLoad:true,theme:'neutral',flowchart:{useMaxWidth:true,htmlLabels:true}});</script>
+</body>
+</html>

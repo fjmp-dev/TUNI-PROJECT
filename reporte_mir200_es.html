@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Avance MIR Suite - MiR200</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root { --tuni:#003580; --gold:#ffcd00; --bg:#fafbfc; --card:#fff; --text:#2d2d2d; --soft:#6b7280; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Segoe UI',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; font-size:15px; }
+  .hero { background:linear-gradient(135deg,var(--tuni) 0%,#1a4da0 100%); color:#fff; padding:44px 40px 36px; }
+  .hero h1 { font-size:26px; font-weight:600; }
+  .hero .sub { font-size:14px; opacity:0.8; margin-top:4px; }
+  .hero .bar { width:40px; height:3px; background:var(--gold); margin-top:14px; }
+  .wrap { max-width:800px; margin:0 auto; padding:32px 28px; }
+  .card { background:var(--card); border-radius:8px; padding:22px 26px; margin:18px 0; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  .card.l { border-left:4px solid var(--tuni); }
+  .card.ok { border-left-color:#16a34a; }
+  .card.warn { border-left-color:#d97706; }
+  h2 { font-size:20px; color:var(--tuni); margin:30px 0 12px; font-weight:600; }
+  h3 { font-size:16px; color:var(--tuni); margin:20px 0 8px; }
+  p { margin:10px 0; }
+  .soft { color:var(--soft); font-size:14px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:14px 0; }
+  .stat { background:var(--card); border-radius:8px; padding:14px 18px; text-align:center; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  .stat .n { font-size:26px; font-weight:700; color:var(--tuni); }
+  .stat .l { font-size:12px; color:var(--soft); margin-top:2px; }
+  .tag { display:inline-block; padding:2px 10px; border-radius:12px; font-size:12px; font-weight:500; }
+  .tag-ok { background:#dcfce7; color:#166534; }
+  .tag-warn { background:#fef3c7; color:#92400e; }
+  .tag-err { background:#fee2e2; color:#991b1b; }
+  table { width:100%; border-collapse:collapse; margin:12px 0 16px; font-size:14px; }
+  th { background:var(--tuni); color:#fff; text-align:left; padding:8px 12px; font-weight:500; font-size:13px; }
+  td { padding:7px 12px; border-bottom:1px solid #e5e7eb; }
+  tr:nth-child(even) td { background:#f9fafb; }
+  .diag { background:#fff; border-radius:8px; padding:20px; margin:16px 0; box-shadow:0 1px 3px rgba(0,0,0,0.06); overflow-x:auto; }
+  .fig { text-align:center; font-size:12px; color:var(--soft); margin-top:4px; }
+  ul,ol { margin:8px 0 8px 22px; }
+  li { margin:5px 0; }
+  .footer { text-align:center; padding:24px; color:var(--soft); font-size:13px; border-top:1px solid #e5e7eb; margin-top:32px; }
+  hr { border:none; border-top:1px solid #e5e7eb; margin:24px 0; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>MIR Suite - Integracion del MiR200</h1>
+  <div class="sub">Tampere University - 22 de junio de 2026</div>
+  <div class="bar"></div>
+</div>
+
+<div class="wrap">
+
+<div class="grid2">
+  <div class="stat"><div class="n">132</div><div class="l">Topics ROS2 descubiertos</div></div>
+  <div class="stat"><div class="n">199</div><div class="l">Topics ROS1 en el MiR</div></div>
+  <div class="stat"><div class="n">0</div><div class="l">Lineas modificadas de Eemil</div></div>
+  <div class="stat"><div class="n">90s</div><div class="l">Watchdog auto-recupera</div></div>
+</div>
+
+<div class="card l">
+  <p style="margin-top:0">
+    El MiR200 es un robot movil que navega por el laboratorio. Tiene su propio sistema ROS1 interno con 199 topics de telemetria: posicion, velocidad, escaneres laser, mapa, bateria, estado del robot, etc. Nuestro objetivo era traer esos datos a nuestro sistema ROS2 en Kevin y mostrarlos en la pagina web.
+  </p>
+  <p>
+    Trabajamos con los scripts que Eemil ya habia creado (<code>mir_raw.py</code> y <code>mirror_node.py</code>) sin modificarlos. Creamos un contenedor Docker dedicado para el bridge y un sistema de recuperacion automatica para cuando el MiR se cuelga.
+  </p>
+</div>
+
+<h2>Como funciona la conexion</h2>
+
+<div class="diag">
+<div class="mermaid">
+flowchart LR
+    M["MiR200<br/>192.168.1.13<br/>ROS1 + rosbridge"] -->|"WebSocket<br/>puerto 9090"| B["Contenedor mir_mir<br/>mir_raw.py<br/>(codigo de Eemil)"]
+    B -->|"traduce mensajes<br/>ROS1 a ROS2"| R["ROS2 en Kevin<br/>192.168.1.75<br/>ROS_DOMAIN_ID=75"]
+    M -->|"API REST<br/>puerto 80"| P["Backend FastAPI<br/>:8080/api/mir/status"]
+    P -->|"JSON: bateria,<br/>posicion, errores"| U["Pagina web<br/>panel MiR"]
+    R -->|"pub topics ROS2"| U
+    style M fill:#fff3e0,stroke:#d97706
+    style B fill:#e8f5e9,stroke:#16a34a
+    style R fill:#e3f2fd,stroke:#003580
+    style P fill:#f3e5f5,stroke:#7b1fa2
+    style U fill:#e3f2fd,stroke:#003580
+</div>
+<div class="fig">Figura 1: Dos caminos de datos -- el bridge ROS1->ROS2 y la API REST directa</div>
+</div>
+
+<div class="card ok">
+  <h3>Lo que construimos</h3>
+  <p>
+    Creamos un contenedor Docker llamado <code>mir_mir</code> que corre el <code>mir_raw.py</code> de Eemil (sin modificarlo, solo lo montamos como volumen). Este script se conecta al rosbridge del MiR en el puerto 9090, descubre automaticamente los 199 topics, y crea publicadores ROS2 para cada uno. Asi, los datos del MiR aparecen como topics nativos de ROS2 en Kevin.
+  </p>
+  <p>
+    Ademas, construimos un <strong>proxy REST</strong> en el backend (FastAPI) que consulta la API del MiR cada pocos segundos y devuelve los datos en un JSON limpio para la pagina web. La API REST es mas estable que el rosbridge y funciona incluso cuando el robot esta en Pause.
+  </p>
+</div>
+
+<h2>El sistema de auto-recuperacion</h2>
+
+<div class="card warn">
+  <p style="margin-top:0">
+    <strong>Problema:</strong> El MiR200 es inestable. Su rosbridge se cuelga con frecuencia (especialmente cuando el robot esta en modo Running). Cuando esto pasa, el <code>mir_raw.py</code> se queda "vivo pero sin datos": el proceso sigue corriendo pero nunca recibe mas mensajes. No se muere, no se reconecta, solo se queda congelado.
+  </p>
+  <p>
+    <strong>Solucion:</strong> Construimos un <i>watchdog</i> -- un script que revisa cada 30 segundos si el bridge esta realmente procesando datos. Si pasan 90 segundos sin actividad, el watchdog <strong>mata</strong> el proceso. El entrypoint del contenedor tiene un ciclo infinito que lo relanza automaticamente. Resultado: cuando el MiR se recupera, el bridge se reconecta solo, sin intervencion humana.
+  </p>
+  <div class="diag">
+<div class="mermaid">
+flowchart TD
+    A["bridge corriendo"] --> B{"hay datos<br/>nuevos?"}
+    B -->|"si"| A
+    B -->|"no por 90s"| C["watchdog mata<br/>el proceso"]
+    C --> D["entrypoint<br/>relanza el bridge"]
+    D --> E["bridge se reconecta<br/>al rosbridge del MiR"]
+    E --> A
+    style A fill:#e8f5e9,stroke:#16a34a
+    style B fill:#fff3e0,stroke:#d97706
+    style C fill:#fee2e2,stroke:#991b1b
+    style D fill:#e3f2fd,stroke:#003580
+    style E fill:#e8f5e9,stroke:#16a34a
+</div>
+<div class="fig">Figura 2: Ciclo del watchdog -- detecta, mata, relanza, reconecta</div>
+  </div>
+</div>
+
+<h2>El modulo del MiR en la pagina web</h2>
+
+<div class="card ok">
+  <p style="margin-top:0">
+    Construimos un panel visual en la pagina web que muestra la informacion del MiR200 usando su API REST (puerto 80). Esta API funciona <strong>incluso cuando el robot esta en Pause</strong>, lo cual es una gran ventaja porque el rosbridge se cae en ese estado.
+  </p>
+  <table>
+    <tr><th>Dato</th><th>Como se ve</th><th>Fuente</th></tr>
+    <tr><td>Bateria</td><td>Porcentaje + barra de color (verde > 40%, naranja 20-40%, roja < 20%)</td><td>REST API</td></tr>
+    <tr><td>Tiempo restante</td><td>Formato "3h 15m"</td><td>REST API</td></tr>
+    <tr><td>Posicion</td><td>Coordenadas X, Y y orientacion en grados</td><td>REST API</td></tr>
+    <tr><td>Velocidad</td><td>Metros/segundo y radianes/segundo</td><td>REST API</td></tr>
+    <tr><td>Estado</td><td>Badge de color (Pause gris, Ready azul, Running verde, Error rojo)</td><td>REST API</td></tr>
+    <tr><td>Modo y Mision</td><td>Texto descriptivo</td><td>REST API</td></tr>
+    <tr><td>Errores</td><td>Numero, en rojo si hay > 0</td><td>REST API</td></tr>
+  </table>
+  <p class="soft">La pagina consulta la API cada 4 segundos. Si el MiR no responde, muestra los ultimos datos buenos por 60 segundos con una marca de "datos viejos" (sin borrar todo). Incluye boton de Actualizar manual.</p>
+</div>
+
+<h2>Lo que encontramos del MiR200</h2>
+
+<div class="card warn">
+  <h3>Errores internos del robot</h3>
+  <table>
+    <tr><th>Codigo</th><th>Modulo</th><th>Descripcion</th><th>Severidad</th></tr>
+    <tr><td>10713</td><td>Motorcontroller</td><td>Large encoder delay detected (retraso en sensor de rueda)</td><td><span class="tag tag-warn">Media</span></td></tr>
+    <tr><td>9000</td><td>Safety System</td><td>SICK Safety PLC no responde</td><td><span class="tag tag-err">Critica</span></td></tr>
+    <tr><td>9000</td><td>Emergency Stop</td><td>Boton de emergencia no responde</td><td><span class="tag tag-err">Critica</span></td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Comportamiento de la red</h3>
+  <table>
+    <tr><th>Estado del MiR</th><th>Ping</th><th>REST API</th><th>Rosbridge</th><th>Topics ROS</th></tr>
+    <tr><td>Pause</td><td><span class="tag tag-ok">OK</span></td><td><span class="tag tag-ok">OK</span></td><td><span class="tag tag-warn">Intermitente</span></td><td><span class="tag tag-err">Sin datos</span></td></tr>
+    <tr><td>Play / Running</td><td><span class="tag tag-err">CAE</span></td><td><span class="tag tag-err">CAE</span></td><td><span class="tag tag-err">CAE</span></td><td><span class="tag tag-err">CAE</span></td></tr>
+    <tr><td>Error</td><td><span class="tag tag-warn">Variable</span></td><td><span class="tag tag-warn">Variable</span></td><td><span class="tag tag-err">CAE</span></td><td><span class="tag tag-err">Sin datos</span></td></tr>
+  </table>
+  <p>
+    <strong>Conclusion:</strong> El robot solo es estable en Pause. Al darle Play, los servicios de red colapsan. Esto es causado por los errores 9000 (sistema de seguridad), no por nuestro software.
+  </p>
+</div>
+
+<div class="card ok">
+  <h3>Recomendacion</h3>
+  <ol>
+    <li>Reinicio fisico completo del robot (Shutdown desde tablet, esperar 1 minuto, encender)</li>
+    <li>Si los errores 9000 persisten: revisar cables del PLC SICK y boton de emergencia</li>
+    <li>Contactar soporte MiR si el hardware esta danado</li>
+  </ol>
+  <p class="soft">Documento completo: <code>docs/mir_connectivity_issue.md</code></p>
+</div>
+
+</div>
+
+<div class="footer">
+  MIR Suite - Tampere University - 22 de junio de 2026
+</div>
+
+<script>mermaid.initialize({startOnLoad:true,theme:'neutral',flowchart:{useMaxWidth:true,htmlLabels:true}});</script>
+</body>
+</html>
