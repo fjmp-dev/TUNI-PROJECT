@@ -1,18 +1,29 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field, ValidationError
+from typing import Literal
 import uvicorn
 import httpx
 import asyncio
-import json
 import os
 import re
 
 app = FastAPI(title="MIR Suite")
 
-MIR_HOST = "192.168.1.13"
+# ============================================================
+# Configuration (env-overridable; defaults match the lab setup).
+# mir_ui loads config/.env via docker-compose `env_file`.
+# ============================================================
+MIR_HOST = os.getenv("MIR_IP", "192.168.1.13")
 MIR_API_BASE = f"http://{MIR_HOST}/api/v2.0.0"
-MIR_TIMEOUT = 4.0
+MIR_TIMEOUT = float(os.getenv("MIR_TIMEOUT", "4.0"))          # MiR REST request timeout (s)
+MIR_CACHE_TTL = float(os.getenv("MIR_CACHE_TTL", "60.0"))     # serve cached MiR status up to this age (s)
+
+JOINT_SERVER_URL = os.getenv("JOINT_SERVER_URL", "http://localhost:9091/joints")
+UR_JOINTS_TTL = float(os.getenv("UR_JOINTS_TTL", "0.1"))      # joints proxy cache (s) -> ~10Hz
+UR_MAX_DELTA = float(os.getenv("UR_MAX_DELTA", "0.5"))        # max |delta| per single joint move (rad)
+UR_STOP_TIMEOUT = int(os.getenv("UR_STOP_TIMEOUT", "10"))     # ur_stop.sh hard timeout (s)
 
 # ============================================================
 # Docker service management (requires /var/run/docker.sock)
@@ -123,8 +134,13 @@ def _exec_in_ur_driver(script: str, timeout: int = 5) -> tuple[bool, str]:
         c = docker_client.containers.get(_ur_container_name())
         if c.status != "running":
             return False, f"container not running (status={c.status})"
-        r = c.exec_run(f"bash {script}", stdout=True, stderr=True, demux=False)
+        # Enforce the timeout with coreutils `timeout` inside the container —
+        # docker exec_run has no timeout, so without this a hung script would
+        # block the worker indefinitely. Exit 124 means it was killed on timeout.
+        r = c.exec_run(f"timeout {timeout} bash {script}", stdout=True, stderr=True, demux=False)
         out = r.output.decode("utf-8", "replace") if isinstance(r.output, bytes) else str(r.output)
+        if r.exit_code == 124:
+            return False, f"script timed out after {timeout}s: {script}"
         return r.exit_code == 0, out
     except docker.errors.NotFound:
         return False, "container mir_ur_driver not found"
@@ -186,10 +202,18 @@ def ur_stop():
     except docker.errors.NotFound:
         raise HTTPException(404, "container mir_ur_driver not found")
 
-    ok, out = _exec_in_ur_driver("/ur_stop.sh", timeout=10)
+    ok, out = _exec_in_ur_driver("/ur_stop.sh", timeout=UR_STOP_TIMEOUT)
     if not ok:
         raise HTTPException(500, f"ur_stop failed: {out}")
     return {"status": "ok", "action": "stopping", "message": out}
+
+
+class MoveRequest(BaseModel):
+    """Validated body for /api/ur/move. Bounds the joint set and the per-move
+    delta so a bad/oversized command can never reach the arm."""
+    arm: Literal["left", "right"]
+    joint: Literal["shoulder_pan", "shoulder_lift", "elbow", "wrist_1", "wrist_2", "wrist_3"]
+    delta: float = Field(..., ge=-UR_MAX_DELTA, le=UR_MAX_DELTA)
 
 
 def _run_move(arm: str, joint: str, delta: float) -> dict:
@@ -243,25 +267,20 @@ def _run_move(arm: str, joint: str, delta: float) -> dict:
 @app.post("/api/ur/move")
 async def ur_move(req: Request):
     raw = await req.body()
-    # Sanitizar: JSON no acepta "+0.1", lo convertimos a "0.1"
+    # JSON doesn't accept "+0.1"; tolerate it for manual curl, then let Pydantic
+    # validate the arm/joint/delta bounds.
     sanitized = re.sub(r':\s*\+', ': ', raw.decode("utf-8"))
-    body = json.loads(sanitized)
-    arm = body.get("arm", "")
-    joint = body.get("joint", "")
-    delta = body.get("delta", 0.0)
-    if arm not in ("left", "right"):
-        raise HTTPException(400, "arm must be 'left' or 'right'")
-    if joint not in ("shoulder_pan", "shoulder_lift", "elbow", "wrist_1", "wrist_2", "wrist_3"):
-        raise HTTPException(400, f"invalid joint: {joint}")
-    if abs(delta) > 1.0:
-        raise HTTPException(400, "delta too large (max 1.0 rad)")
+    try:
+        move = MoveRequest.model_validate_json(sanitized)
+    except ValidationError as e:
+        raise HTTPException(422, f"invalid move request: {e.errors()}")
     if docker_client is None:
         raise HTTPException(503, "docker not available")
 
     # The move shells into the container and waits for the trajectory result
     # (seconds). Off-load to a thread so concurrent requests — notably the joints
     # polling — keep being served while the arm moves.
-    return await asyncio.to_thread(_run_move, arm, joint, delta)
+    return await asyncio.to_thread(_run_move, move.arm, move.joint, move.delta)
 
 
 @app.get("/health")
@@ -269,17 +288,15 @@ def health():
     return {"status": "ok", "service": "MIR_Suite"}
 
 
-# Cache de joints para no saturar al contenedor
+# Cache de joints para no saturar al contenedor (config: UR_JOINTS_TTL, JOINT_SERVER_URL)
 _ur_joints_cache = {"data": None, "ts": 0.0}
-_UR_JOINTS_TTL = 0.1  # 100ms = 10Hz en la UI
-JOINT_SERVER_URL = "http://localhost:9091/joints"
 
 
 @app.get("/api/ur/joints")
 async def ur_joints():
     global _ur_joints_cache
     now = asyncio.get_event_loop().time()
-    if _ur_joints_cache["data"] is not None and (now - _ur_joints_cache["ts"]) < _UR_JOINTS_TTL:
+    if _ur_joints_cache["data"] is not None and (now - _ur_joints_cache["ts"]) < UR_JOINTS_TTL:
         return _ur_joints_cache["data"]
 
     try:
@@ -302,8 +319,7 @@ async def ur_joints():
     return data
 
 
-_mir_cache = {"data": None, "ts": 0.0}
-_MIR_CACHE_TTL = 60.0
+_mir_cache = {"data": None, "ts": 0.0}  # config: MIR_CACHE_TTL
 
 
 @app.get("/api/mir/status")
@@ -318,7 +334,7 @@ async def mir_status():
     except (httpx.TimeoutException, httpx.HTTPError) as e:
         now = asyncio.get_event_loop().time()
         age = now - _mir_cache["ts"]
-        if _mir_cache["data"] is not None and age < _MIR_CACHE_TTL:
+        if _mir_cache["data"] is not None and age < MIR_CACHE_TTL:
             return {**_format_mir_status(_mir_cache["data"]), "stale": True, "age_s": int(age)}
         detail = "timeout" if isinstance(e, httpx.TimeoutException) else f"http error: {e}"
         raise HTTPException(504, f"MiR {detail} (no cached data)")

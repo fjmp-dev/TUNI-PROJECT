@@ -7,6 +7,8 @@ services:
     image: mir_ui:latest
     container_name: mir_ui
     network_mode: host
+    env_file:
+      - ./config/.env
     volumes:
       - ./backend/main.py:/app/main.py
       - ./frontend:/app/static
