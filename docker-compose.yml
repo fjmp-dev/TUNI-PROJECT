@@ -43,7 +43,6 @@ services:
       - /home/lab/pbd_system:/root/workspace
       - ./logs:/var/log/mir
       - ./scripts/mir_raw.py:/mir_raw.py
-      - ./scripts/mirror_node.py:/mirror_node.py
       - ./scripts/mir_entrypoint.sh:/entrypoint.sh
     environment:
       - ROS_DOMAIN_ID=75

@@ -536,7 +536,6 @@ mir_suite/
 │   ├── ur_stop.sh                   # Detiene el driver UR
 │   ├── joint_server.py              # HTTP server :9091 para /joint_states
 │   ├── joint_mover.py               # Mueve un joint via action client
-│   ├── joint_reader.py              # Obsoleto, reemplazado por joint_server
 │   ├── action_bridge.py             # JSON → ROS2 actions (de sesiones anteriores)
 │   ├── camera_entrypoint.sh         # Entrypoint del contenedor mir_camera
 │   ├── rosbridge_entrypoint.sh      # Entrypoint de rosbridge standalone
@@ -544,7 +543,6 @@ mir_suite/
 │   ├── mir_entrypoint.sh            # Entrypoint del contenedor mir_mir
 │   ├── mir_raw.py                   # Bridge ROS1→ROS2 de Eemil (sin modificar)
 │   ├── mir_watchdog.sh              # Watchdog para auto-recuperacion del bridge
-│   ├── mirror_node.py               # CmdVel y RobotPose forwarder de Eemil
 │   └── roslibpy_test.py             # Test de conexion a rosbridge (Eemil)
 │
 ├── docker/
