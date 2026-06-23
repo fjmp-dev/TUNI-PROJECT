@@ -85,6 +85,12 @@ services:
       - /usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/tegra
       - ./scripts/action_bridge.py:/action_bridge.py
       - ./scripts/sim_entrypoint.sh:/entrypoint.sh
+      - ./scripts/joint_server.py:/joint_server.py
+      - ./scripts/joint_mover.py:/joint_mover.py
+      # Patched duo_ur launch (fake_hardware fix) overlaid read-only so Eemil's
+      # workspace stays pristine. Only the sim needs it: the patched block runs
+      # only when use_fake_hardware:=true, so the real driver uses the original.
+      - ./vendor/duo_ur/duo_ur_real.launch.py:/root/workspace/ros_ws/src/dev_repos/duo_ur/launch/duo_ur_real.launch.py:ro
       - ./config:/mir/config
     environment:
       - ROS_DOMAIN_ID=75

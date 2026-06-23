@@ -5,6 +5,7 @@ import uvicorn
 import httpx
 import asyncio
 import json
+import os
 
 app = FastAPI(title="MIR Suite")
 
@@ -20,6 +21,26 @@ try:
     docker_client = docker.from_env()
 except Exception:
     docker_client = None
+
+# Which UR driver container the /api/ur/* endpoints target. We auto-detect the
+# running one so the same endpoints drive either the real arms (mir_ur_driver)
+# or the fake-hardware sim (mir_ur_driver_sim). They are mutually exclusive —
+# both bind rosbridge :9090 — so at most one is up. Set UR_CONTAINER to force one.
+UR_CONTAINER_OVERRIDE = os.environ.get("UR_CONTAINER")
+_UR_CONTAINER_CANDIDATES = ("mir_ur_driver", "mir_ur_driver_sim")
+
+
+def _ur_container_name() -> str:
+    if UR_CONTAINER_OVERRIDE:
+        return UR_CONTAINER_OVERRIDE
+    if docker_client is not None:
+        for name in _UR_CONTAINER_CANDIDATES:
+            try:
+                if docker_client.containers.get(name).status == "running":
+                    return name
+            except Exception:
+                continue
+    return "mir_ur_driver"
 
 MIR_SERVICES = {
     "mir_ui":       {"label": "Web UI",        "profiles": ["always"]},
@@ -98,7 +119,7 @@ def _exec_in_ur_driver(script: str, timeout: int = 5) -> tuple[bool, str]:
     if docker_client is None:
         return False, "docker not available"
     try:
-        c = docker_client.containers.get("mir_ur_driver")
+        c = docker_client.containers.get(_ur_container_name())
         if c.status != "running":
             return False, f"container not running (status={c.status})"
         r = c.exec_run(f"bash {script}", stdout=True, stderr=True, demux=False)
@@ -115,7 +136,7 @@ def ur_status():
     if docker_client is None:
         raise HTTPException(503, "docker not available")
     try:
-        c = docker_client.containers.get("mir_ur_driver")
+        c = docker_client.containers.get(_ur_container_name())
         running = c.status == "running"
     except docker.errors.NotFound:
         return {"container_running": False, "driver_running": False}
@@ -136,7 +157,7 @@ def ur_start():
     if docker_client is None:
         raise HTTPException(503, "docker not available")
     try:
-        c = docker_client.containers.get("mir_ur_driver")
+        c = docker_client.containers.get(_ur_container_name())
         if c.status != "running":
             raise HTTPException(400, "container mir_ur_driver not running")
     except docker.errors.NotFound:
@@ -155,7 +176,7 @@ def ur_stop():
     if docker_client is None:
         raise HTTPException(503, "docker not available")
     try:
-        c = docker_client.containers.get("mir_ur_driver")
+        c = docker_client.containers.get(_ur_container_name())
         if c.status != "running":
             raise HTTPException(400, "container mir_ur_driver not running")
     except docker.errors.NotFound:
@@ -187,7 +208,7 @@ async def ur_move(req: Request):
     if docker_client is None:
         raise HTTPException(503, "docker not available")
     try:
-        c = docker_client.containers.get("mir_ur_driver")
+        c = docker_client.containers.get(_ur_container_name())
         if c.status != "running":
             raise HTTPException(400, "mir_ur_driver not running")
     except docker.errors.NotFound:
@@ -207,7 +228,7 @@ async def ur_move(req: Request):
     # Si falló, intentar recovery: resend robot program + reactivar controller
     if r.exit_code != 0 and "goal rejected" in out.lower():
         _sp.run([
-            "docker", "exec", "mir_ur_driver",
+            "docker", "exec", c.name,
             "bash", "-c",
             "source /opt/ros/humble/setup.bash && "
             f"ros2 service call /{arm}_io_and_status_controller/resend_robot_program std_srvs/srv/Trigger '{{}}' >/dev/null 2>&1 && "
