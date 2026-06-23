@@ -14,9 +14,11 @@ NOW=$(date +%s)
 LAST_IO=$(stat -c %Y "$LAST_IO_FILE" 2>/dev/null || echo 0)
 AGE=$((NOW - LAST_IO))
 
-# Si el bridge no escribe nada en stdout por más de 90s, lo matamos
-if [ "$AGE" -gt 90 ]; then
-    echo "[watchdog] Bridge sin actividad por ${AGE}s, reiniciando (PID $BRIDGE_PID)..."
+# Si el bridge no escribe nada en stdout por más del umbral, lo matamos
+# (env-overridable: MIR_WATCHDOG_THRESHOLD, default 90s).
+THRESHOLD=${MIR_WATCHDOG_THRESHOLD:-90}
+if [ "$AGE" -gt "$THRESHOLD" ]; then
+    echo "[watchdog] $(date -Iseconds) bridge sin actividad por ${AGE}s (umbral ${THRESHOLD}s), reiniciando (PID $BRIDGE_PID)..."
     kill -9 "$BRIDGE_PID" 2>/dev/null
     rm -f "$LAST_IO_FILE"
     exit 0

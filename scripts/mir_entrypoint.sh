@@ -4,9 +4,12 @@ source /root/workspace/ros_ws/install/setup.bash 2>/dev/null || true
 
 echo "[mir] Starting MiR200 ROS1->ROS2 bridge..."
 
-# Watchdog en background: mata el bridge si está "vivo pero sin datos"
+# Watchdog en background: mata el bridge si está "vivo pero sin datos".
+# Interval y umbral configurables (env-overridable); el umbral lo lee mir_watchdog.sh.
+WATCHDOG_INTERVAL=${MIR_WATCHDOG_INTERVAL:-30}
+echo "[mir] watchdog: cada ${WATCHDOG_INTERVAL}s, umbral ${MIR_WATCHDOG_THRESHOLD:-90}s sin actividad"
 ( while true; do
-    sleep 30
+    sleep "$WATCHDOG_INTERVAL"
     bash /mir_watchdog.sh || true
 done ) &
 WATCHDOG_PID=$!

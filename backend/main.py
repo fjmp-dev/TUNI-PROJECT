@@ -238,8 +238,12 @@ def _run_move(arm: str, joint: str, delta: float) -> dict:
     except Exception as e:
         raise HTTPException(500, f"exec failed: {e}")
 
-    # Si falló, intentar recovery: resend robot program + reactivar controller
-    if r.exit_code != 0 and "goal rejected" in out.lower():
+    # Si falló con un error recuperable, intentar recovery: resend robot program
+    # + reactivar controller. Cubre los modos típicos del controller_stopper /
+    # programa externo caído: goal rechazado, controller inactivo, o timeout.
+    _low = out.lower()
+    _recoverable = any(s in _low for s in ("goal rejected", "controller not available", "timeout waiting"))
+    if r.exit_code != 0 and _recoverable:
         _sp.run([
             "docker", "exec", c.name,
             "bash", "-c",
