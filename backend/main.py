@@ -6,6 +6,7 @@ import httpx
 import asyncio
 import json
 import os
+import re
 
 app = FastAPI(title="MIR Suite")
 
@@ -144,7 +145,10 @@ def ur_status():
     driver_running = False
     if running:
         try:
-            r = c.exec_run("bash -c 'pgrep -f duo_ur_real | head -1'", stdout=True, stderr=True, demux=False)
+            # Bracket trick so pgrep doesn't match its own command line (which
+            # literally contains "duo_ur_real"): "[d]uo_ur_real" matches the
+            # running launch process but not the pgrep invocation itself.
+            r = c.exec_run("bash -c 'pgrep -f [d]uo_ur_real | head -1'", stdout=True, stderr=True, demux=False)
             out = r.output.decode("utf-8", "replace").strip() if isinstance(r.output, bytes) else str(r.output or "").strip()
             driver_running = r.exit_code == 0 and len(out) > 0
         except Exception:
@@ -188,35 +192,20 @@ def ur_stop():
     return {"status": "ok", "action": "stopping", "message": out}
 
 
-@app.post("/api/ur/move")
-async def ur_move(req: Request):
-    raw = await req.body()
-    # Sanitizar: JSON no acepta "+0.1", lo convertimos a "0.1"
-    import re
-    sanitized = re.sub(r':\s*\+', ': ', raw.decode("utf-8"))
-    body = json.loads(sanitized)
-    arm = body.get("arm", "")
-    joint = body.get("joint", "")
-    delta = body.get("delta", 0.0)
-    if arm not in ("left", "right"):
-        raise HTTPException(400, "arm must be 'left' or 'right'")
-    if joint not in ("shoulder_pan", "shoulder_lift", "elbow", "wrist_1", "wrist_2", "wrist_3"):
-        raise HTTPException(400, f"invalid joint: {joint}")
-    if abs(delta) > 1.0:
-        raise HTTPException(400, "delta too large (max 1.0 rad)")
-
-    if docker_client is None:
-        raise HTTPException(503, "docker not available")
+def _run_move(arm: str, joint: str, delta: float) -> dict:
+    """Blocking joint move via docker exec. Runs in a worker thread (see ur_move)
+    so the long-running exec never blocks the asyncio event loop — otherwise the
+    whole API, joint polling included, would freeze for the duration of a move."""
     try:
         c = docker_client.containers.get(_ur_container_name())
-        if c.status != "running":
-            raise HTTPException(400, "mir_ur_driver not running")
     except docker.errors.NotFound:
-        raise HTTPException(404, "mir_ur_driver not found")
+        raise HTTPException(404, "UR driver container not found")
+    if c.status != "running":
+        raise HTTPException(400, f"{c.name} not running")
 
     cmd = (
-        f"bash -c 'source /opt/ros/humble/setup.bash && "
-        f"source /root/workspace/ros_ws/install/setup.bash 2>/dev/null && "
+        "bash -c 'source /opt/ros/humble/setup.bash && "
+        "source /root/workspace/ros_ws/install/setup.bash 2>/dev/null && "
         f"python3 /joint_mover.py {arm} {joint} {delta}'"
     )
     try:
@@ -249,6 +238,30 @@ async def ur_move(req: Request):
     if r.exit_code != 0:
         raise HTTPException(500, f"joint_mover failed (exit {r.exit_code}): {out[:300]}")
     return {"status": "ok", "arm": arm, "joint": joint, "delta": delta, "message": out.strip()}
+
+
+@app.post("/api/ur/move")
+async def ur_move(req: Request):
+    raw = await req.body()
+    # Sanitizar: JSON no acepta "+0.1", lo convertimos a "0.1"
+    sanitized = re.sub(r':\s*\+', ': ', raw.decode("utf-8"))
+    body = json.loads(sanitized)
+    arm = body.get("arm", "")
+    joint = body.get("joint", "")
+    delta = body.get("delta", 0.0)
+    if arm not in ("left", "right"):
+        raise HTTPException(400, "arm must be 'left' or 'right'")
+    if joint not in ("shoulder_pan", "shoulder_lift", "elbow", "wrist_1", "wrist_2", "wrist_3"):
+        raise HTTPException(400, f"invalid joint: {joint}")
+    if abs(delta) > 1.0:
+        raise HTTPException(400, "delta too large (max 1.0 rad)")
+    if docker_client is None:
+        raise HTTPException(503, "docker not available")
+
+    # The move shells into the container and waits for the trajectory result
+    # (seconds). Off-load to a thread so concurrent requests — notably the joints
+    # polling — keep being served while the arm moves.
+    return await asyncio.to_thread(_run_move, arm, joint, delta)
 
 
 @app.get("/health")
