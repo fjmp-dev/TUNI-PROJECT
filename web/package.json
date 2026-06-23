@@ -1,0 +1,20 @@
+{
+  "name": "mir-suite-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^4.0.4",
+    "svelte": "^5.55.5",
+    "vite": "^5.4.11"
+  },
+  "dependencies": {
+    "roslib": "^1.4.1",
+    "three": "^0.169.0"
+  }
+}
