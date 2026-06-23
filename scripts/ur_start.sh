@@ -46,9 +46,28 @@ for i in $(seq 1 90); do
     sleep 1
 done
 
-# Esperar 30s a que se conecten los brazos
-echo "[ur_start] esperando 30s para brazos..."
-sleep 30
+# Esperar (con timeout) a que AMBOS brazos confirmen conexion RTDE: el componente
+# hardware del UR (left_ur/right_ur) pasa a 'active' cuando el driver conecta por
+# RTDE. list_hardware_components es un servicio (devuelve el estado al instante),
+# mas fiable que un sleep ciego o que echo del topic robot_mode (QoS latched).
+# Sale en cuanto conectan; si no confirman a tiempo, avisa pero continua.
+# Configurable con UR_ARMS_TIMEOUT (segundos).
+ARMS_TIMEOUT=${UR_ARMS_TIMEOUT:-45}
+echo "[ur_start] esperando RTDE de ambos brazos (left_ur/right_ur active, hasta ${ARMS_TIMEOUT}s)..." | tee -a $LOG
+arms_deadline=$((SECONDS + ARMS_TIMEOUT))
+arms_ok=0
+while [ $SECONDS -lt $arms_deadline ]; do
+    both=$(ros2 control list_hardware_components 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | awk '
+        /name: (left_ur|right_ur)/ { cur=$2 }
+        /state:/ && cur { if ($0 ~ /label=active/) a[cur]=1; cur="" }
+        END { print (("left_ur" in a) && ("right_ur" in a)) ? "yes" : "no" }')
+    if [ "$both" = "yes" ]; then
+        echo "[ur_start] ambos brazos conectados (left_ur/right_ur active)" | tee -a $LOG
+        arms_ok=1; break
+    fi
+    sleep 2
+done
+[ "$arms_ok" = "1" ] || echo "[ur_start] WARN: brazos no confirmados active tras ${ARMS_TIMEOUT}s; continuo igual" | tee -a $LOG
 
 # Intentar activar controladores de trayectoria
 echo "[ur_start] activando controladores de trayectoria..." | tee -a $LOG
