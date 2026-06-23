@@ -3,11 +3,12 @@
   import { api } from '../lib/api.js';
   import { config } from '../lib/config.js';
   import { log } from '../lib/log.svelte.js';
+  import { jointsState, startJoints, stopJoints } from '../lib/joints.svelte.js';
 
   let status = $state({ container_running: false, driver_running: false });
-  let joints = $state(null);
   let busy = $state(false);
-  let statusTimer, jointsTimer;
+  let statusTimer;
+  const joints = $derived(jointsState.data);
 
   const JOINTS = [
     ['shoulder_pan_joint', 'shoulder_pan'],
@@ -25,14 +26,6 @@
       status = await api.urStatus();
     } catch {
       status = { container_running: false, driver_running: false };
-    }
-  }
-
-  async function refreshJoints() {
-    try {
-      joints = await api.urJoints();
-    } catch {
-      joints = null;
     }
   }
 
@@ -74,13 +67,12 @@
 
   onMount(() => {
     refreshStatus();
-    refreshJoints();
     statusTimer = setInterval(refreshStatus, config.poll.urStatusMs);
-    jointsTimer = setInterval(refreshJoints, config.poll.urJointsMs);
+    startJoints();
   });
   onDestroy(() => {
     clearInterval(statusTimer);
-    clearInterval(jointsTimer);
+    stopJoints();
   });
 </script>
 

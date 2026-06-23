@@ -15,31 +15,25 @@
 
 <Header />
 <main class="grid">
-  <div class="col">
-    <CameraPanel />
-    <MirPanel />
-  </div>
-  <div class="col">
-    <UrPanel />
-    <Viewer3D />
-  </div>
-  <div class="full">
-    <LogPanel />
-  </div>
+  <CameraPanel />
+  <Viewer3D />
+  <MirPanel />
+  <UrPanel />
+  <div class="full"><LogPanel /></div>
 </main>
 
 <style>
   .grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    align-items: start;
     gap: 16px;
     padding: 16px;
-    max-width: 1400px;
+    max-width: 1500px;
     margin: 0 auto;
   }
-  .col { display: flex; flex-direction: column; gap: 16px; }
   .full { grid-column: 1 / -1; }
-  @media (max-width: 900px) {
+  @media (max-width: 1000px) {
     .grid { grid-template-columns: 1fr; }
   }
 </style>

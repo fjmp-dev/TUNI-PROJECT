@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 3D meshes copied from ../models by the copy-models script
+public/models/
