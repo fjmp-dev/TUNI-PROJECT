@@ -1,6 +1,6 @@
 # MIR Suite - Documentacion Completa del Proyecto
 
-**Ultima actualizacion:** 22 de junio de 2026
+**Ultima actualizacion:** 23 de junio de 2026
 **Ubicacion:** `/home/lab/Desktop/MIR/mir_suite`
 **Repositorio:** `github.com/fjmp-dev/TUNI-PROJECT`
 **Host:** Kevin (MIC-733 / NVIDIA Jetson AGX Orin)
@@ -480,9 +480,25 @@ El `scaled_joint_trajectory_controller` esta roto: acepta goals pero nunca los c
 
 Nuestros UR5e usan PolyScopeX (software nuevo de Universal Robots). El `dashboard_client` (servicios de recovery) NO funciona en PolyScopeX — solo en e-Series. Para recovery usamos `resend_robot_program`.
 
+### Vendoring del launch de Eemil en vez de modificarlo (23-Jun-2026)
+
+El perfil `sim` necesita un fix en `duo_ur_real.launch.py` (el `controllers_active.remove("tcp_pose_broadcaster")` debe ser `left_`/`right_`, solo bajo `use_fake_hardware:=true`). Antes el `sim_entrypoint.sh` lo aplicaba con `sed -i` sobre el codigo montado de Eemil — violacion de la regla de aislamiento. Ahora la version parcheada vive en `vendor/duo_ur/duo_ur_real.launch.py` y se monta como overlay **read-only solo en el servicio sim**. Eemil queda pristine; el driver real usa el original (nunca ejecuta ese bloque). Mismo patron que `mir_raw.py`.
+
+### Auto-deteccion del contenedor UR (23-Jun-2026)
+
+`backend/main.py` ya no hardcodea `mir_ur_driver`. La funcion `_ur_container_name()` auto-detecta cual de los dos contenedores UR esta corriendo (`mir_ur_driver` real ↔ `mir_ur_driver_sim`), con override via env `UR_CONTAINER`. Son mutuamente excluyentes (ambos bindean rosbridge :9090), asi que los mismos endpoints `/api/ur/*` sirven para hardware real y para simulacion.
+
 ---
 
 ## 10. Bugs Encontrados y Corregidos
+
+### Sesion 23-Jun-2026
+
+| Bug | Causa | Estado |
+|---|---|---|
+| `sim_entrypoint.sh` modificaba el codigo de Eemil | Aplicaba el fix del launch con `sed -i` sobre `/root/workspace` (montado RW del workspace de Eemil). | Corregido: launch parcheado vendorizado en `vendor/duo_ur/` y montado como overlay read-only solo en sim; Eemil restaurado a pristine. |
+| El perfil `sim` no servia como banco de pruebas de endpoints | No lanzaba `joint_server` (:9091) y el backend apuntaba al contenedor `mir_ur_driver` hardcodeado. | Corregido: `joint_server` en `sim_entrypoint.sh` + montajes en compose + auto-deteccion de contenedor en backend. |
+| `/api/ur/status` reporta `driver_running:true` siempre | `pgrep -f duo_ur` se matchea a si mismo (la cadena "duo_ur" esta en su propia linea de comando). | PENDIENTE. Fix sugerido: `pgrep -f "[d]uo_ur_real"`. |
 
 ### Sesion 22-Jun-2026
 
@@ -542,6 +558,10 @@ mir_suite/
 │
 ├── config/
 │   └── right_safe_pose.json         # Pose segura del brazo derecho
+│
+├── vendor/                          # Copias parcheadas de archivos de terceros (no se toca el original)
+│   └── duo_ur/
+│       └── duo_ur_real.launch.py    # Launch de Eemil parcheado para fake_hardware (overlay solo en sim)
 │
 ├── models/                          # Mallas 3D UR5e para Three.js
 │   ├── ur5e_base.dae
