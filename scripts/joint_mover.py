@@ -18,18 +18,39 @@ import socket
 
 
 def get_joints():
+    """Fetch the latest joint positions from joint_server (:9091).
+
+    Raises RuntimeError with a clear message on any failure (server down,
+    timeout, malformed response, or a server-side error payload) so the caller
+    ABORTS the move instead of silently falling back to a 0.0 baseline — moving
+    from a phantom 0.0 current position could command a large, unexpected jump.
+    """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(2)
-    sock.connect(('127.0.0.1', 9091))
-    sock.sendall(b'GET /joints HTTP/1.0\r\n\r\n')
-    data = b''
-    while True:
-        chunk = sock.recv(4096)
-        if not chunk: break
-        data += chunk
-    sock.close()
-    body = data.split(b'\r\n\r\n', 1)[1]
-    return json.loads(body)
+    try:
+        sock.connect(('127.0.0.1', 9091))
+        sock.sendall(b'GET /joints HTTP/1.0\r\n\r\n')
+        data = b''
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+    except (socket.timeout, OSError) as e:
+        raise RuntimeError(f'cannot reach joint_server on :9091 ({e})')
+    finally:
+        sock.close()
+
+    parts = data.split(b'\r\n\r\n', 1)
+    if len(parts) < 2 or not parts[1].strip():
+        raise RuntimeError('empty/invalid response from joint_server')
+    try:
+        body = json.loads(parts[1])
+    except (ValueError, json.JSONDecodeError) as e:
+        raise RuntimeError(f'bad JSON from joint_server ({e})')
+    if isinstance(body, dict) and body.get('error'):
+        raise RuntimeError(f'joint_server error: {body["error"]}')
+    return body
 
 
 class Mover(Node):
@@ -66,10 +87,21 @@ class Mover(Node):
 
         idx = joint_index[joint_short]
 
-        # Estado actual via joint_server
-        d = get_joints()
-        current = d.get(side, {})
-        current_full = [current.get(n.replace(f'{side}_', ''), 0.0) for n in full_names]
+        # Estado actual via joint_server. Abortamos si falla o falta algun joint:
+        # nunca partir de un 0.0 fantasma (commandaria un salto grande inesperado).
+        try:
+            d = get_joints()
+        except RuntimeError as e:
+            return False, str(e)
+        current = d.get(side)
+        if not current:
+            return False, f'no joint data for {side} arm (cannot move safely)'
+        current_full = []
+        for n in full_names:
+            short = n.replace(f'{side}_', '')
+            if short not in current:
+                return False, f'missing {short} in joint data (cannot move safely)'
+            current_full.append(current[short])
         target_full = list(current_full)
         target_full[idx] += delta
 
