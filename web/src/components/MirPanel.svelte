@@ -4,7 +4,8 @@
   import { config } from '../lib/config.js';
 
   let data = $state(null);
-  let error = $state(null);
+  let offline = $state(false);
+  let failCount = 0;
   let timer;
 
   const stateClass = (s) => {
@@ -21,17 +22,27 @@
   async function refresh() {
     try {
       data = await api.mirStatus();
-      error = null;
-    } catch (e) {
-      error = e.message;
+      offline = false;
+      failCount = 0;
+    } catch {
+      offline = true;
+      failCount++;
+    } finally {
+      schedule();
     }
   }
 
-  onMount(() => {
-    refresh();
-    timer = setInterval(refresh, config.poll.mirStatusMs);
-  });
-  onDestroy(() => clearInterval(timer));
+  // Back off when the MiR is unreachable (usually powered off) so we don't hammer
+  // the backend or flood the console every few seconds. Reset on success.
+  function schedule() {
+    clearTimeout(timer);
+    const base = config.poll.mirStatusMs;
+    const delay = offline ? Math.min(base * Math.min(failCount, 8), 30000) : base;
+    timer = setTimeout(refresh, delay);
+  }
+
+  onMount(refresh);
+  onDestroy(() => clearTimeout(timer));
 </script>
 
 <div class="panel">
@@ -42,13 +53,18 @@
         <span class="badge {stateClass(data.state)}" class:stale={data.stale}>
           {data.state}{data.stale ? ` (${data.age_s}s)` : ''}
         </span>
+      {:else if offline}
+        <span class="badge">sin conexión</span>
       {/if}
-      <button onclick={refresh}>Actualizar</button>
+      <button onclick={() => { failCount = 0; refresh(); }}>Actualizar</button>
     </div>
   </div>
   <div class="panel-body">
-    {#if error && !data}
-      <div class="err-box">Sin respuesta del MiR: {error}</div>
+    {#if offline && !data}
+      <div class="offline">
+        MiR sin conexión — probablemente apagado.
+        <div class="muted">Se reintenta automáticamente. Solo responde encendido y en Pause.</div>
+      </div>
     {:else if data}
       <div class="battery">
         <div class="stat-label">Batería</div>
@@ -66,7 +82,7 @@
         </div>
       </div>
     {:else}
-      <div class="empty">Cargando…</div>
+      <div class="muted">Cargando…</div>
     {/if}
   </div>
 </div>
@@ -80,6 +96,6 @@
   .fill.warn { background: var(--warn); }
   .fill.err { background: var(--err); }
   .has-err { color: var(--err); }
-  .err-box { color: var(--err); }
-  .empty { color: var(--muted); }
+  .offline { color: var(--text); }
+  .muted { color: var(--muted); font-size: 12px; margin-top: 4px; }
 </style>
