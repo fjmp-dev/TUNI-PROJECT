@@ -31,6 +31,12 @@
   const arms = {};
   const loader = new ColladaLoader();
 
+  // The .dae meshes declare meter=1 but their coordinates are actually in
+  // millimeters, while the kinematic chain (ur5e_chain.json) is in meters. Scale
+  // every loaded mesh by 0.001 so the parts assemble at the right size instead of
+  // rendering 1000x too large (which looked "disassembled").
+  const MESH_SCALE = 0.001;
+
   const setRpy = (obj, rpy) => {
     obj.rotation.order = 'XYZ';
     obj.rotation.set(rpy[0], rpy[1], rpy[2]);
@@ -38,7 +44,9 @@
 
   async function loadCollada(url) {
     const collada = await loader.loadAsync(url);
-    return collada.scene;
+    const obj = collada.scene;
+    obj.scale.setScalar(MESH_SCALE);
+    return obj;
   }
 
   async function loadArm(side, chain) {
