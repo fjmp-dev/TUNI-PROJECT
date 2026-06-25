@@ -29,6 +29,7 @@
 
   let scene, camera, renderer, controls, raf;
   const arms = {};
+  const armGroups = [];
   const loader = new ColladaLoader();
 
   // The .dae meshes declare meter=1 but their coordinates are actually in
@@ -85,6 +86,23 @@
 
     scene.add(armGroup);
     arms[side] = jointInfos;
+    armGroups.push(armGroup);
+  }
+
+  // Frame the camera to the loaded arms so they're always in view regardless of
+  // mesh scale/orientation.
+  function frameCamera() {
+    const box = new THREE.Box3();
+    for (const g of armGroups) box.expandByObject(g);
+    if (box.isEmpty()) return;
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3()).length() || 1;
+    camera.near = size / 100;
+    camera.far = size * 100;
+    camera.position.set(center.x + size * 0.7, center.y + size * 0.5, center.z + size * 0.7);
+    camera.updateProjectionMatrix();
+    controls.target.copy(center);
+    controls.update();
   }
 
   // Apply joint angles. All UR5e joints rotate about local Z (URDF axis 0 0 1).
@@ -159,6 +177,7 @@
       const chain = await (await fetch('/models/ur5e_chain.json')).json();
       await loadArm('left', chain);
       await loadArm('right', chain);
+      frameCamera();
       log('Visor 3D: brazos cargados', 'success');
     } catch (e) {
       log('Visor 3D: error cargando mallas: ' + e.message, 'error');
