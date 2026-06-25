@@ -66,6 +66,9 @@
         <div class="muted">Se reintenta automáticamente. Solo responde encendido y en Pause.</div>
       </div>
     {:else if data}
+      {#if data.stale}
+        <div class="stale-banner">Datos de hace {data.age_s}s — el MiR no respondió (intermitente). Reintentando…</div>
+      {/if}
       <div class="battery">
         <div class="stat-label">Batería</div>
         <div class="bar"><div class="fill {batteryClass(data.battery_pct)}" style="width:{data.battery_pct}%"></div></div>
@@ -96,6 +99,15 @@
   .fill.warn { background: var(--warn); }
   .fill.err { background: var(--err); }
   .has-err { color: var(--err); }
+  .stale-banner {
+    background: rgba(224, 138, 30, 0.12);
+    border: 1px solid var(--warn);
+    color: var(--warn);
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+  }
   .offline { color: var(--text); }
   .muted { color: var(--muted); font-size: 12px; margin-top: 4px; }
 </style>
