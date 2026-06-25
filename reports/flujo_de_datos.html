@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MIR Suite — Cómo fluyen los datos</title>
+<style>
+  :root {
+    --tampere: #4e008e;
+    --tampere-2: #7a3cc0;
+    --ink: #1c1a22;
+    --muted: #6b6478;
+    --line: #e3e0ea;
+    --bg: #f6f5f9;
+    --card: #ffffff;
+    --ok: #1f8a4c;
+    --warn: #b9760f;
+    --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px 80px; }
+  header.top {
+    background: linear-gradient(135deg, var(--tampere), var(--tampere-2));
+    color: #fff; padding: 40px 0 34px;
+  }
+  header.top .wrap { padding-bottom: 0; }
+  header.top h1 { margin: 0 0 6px; font-size: 30px; }
+  header.top p { margin: 0; opacity: 0.92; }
+  h2 {
+    font-size: 22px; margin: 44px 0 4px; padding-top: 10px;
+    border-top: 3px solid var(--tampere); display: inline-block;
+  }
+  .lead { color: var(--muted); margin: 6px 0 18px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; margin: 16px 0; box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  code, .mono { font-family: var(--mono); font-size: 0.92em; }
+  code { background: #efecf5; padding: 1px 5px; border-radius: 4px; }
+  .tag {
+    display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 0.03em;
+    padding: 2px 8px; border-radius: 999px; vertical-align: middle;
+  }
+  .tag.host { background: #ece6f6; color: var(--tampere); }
+  .tag.robot { background: #e6f2ec; color: var(--ok); }
+  .tag.web { background: #fdf0e0; color: var(--warn); }
+
+  /* Flow pipeline */
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; margin: 14px 0; }
+  .node {
+    flex: 1 1 150px; min-width: 140px; background: #fff;
+    border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px;
+  }
+  .node.accent { border-color: var(--tampere); }
+  .node .n-t { font-weight: 700; font-size: 13.5px; }
+  .node .n-d { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .node .n-tag { margin-top: 6px; }
+  .arrow {
+    flex: 0 0 86px; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; padding: 0 2px; color: var(--tampere);
+  }
+  .arrow .lbl { font-size: 10.5px; color: var(--muted); text-align: center; line-height: 1.25; margin-bottom: 2px; }
+  .arrow .line { font-size: 20px; line-height: 1; }
+  @media (max-width: 760px) {
+    .flow { flex-direction: column; }
+    .arrow { flex-basis: auto; flex-direction: row; gap: 8px; padding: 6px 0; }
+    .arrow .line { transform: rotate(90deg); }
+    .node { flex-basis: auto; }
+  }
+
+  .pill { font-size: 12px; color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--tampere); font-size: 13px; }
+  .note { background: #f3effa; border-left: 3px solid var(--tampere); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: 14px; }
+  .warnbox { background: #fdf4e7; border-left: 3px solid var(--warn); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: 14px; }
+  ul.tight { margin: 6px 0; padding-left: 20px; }
+  ul.tight li { margin: 3px 0; }
+  footer { color: var(--muted); font-size: 13px; margin-top: 50px; text-align: center; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <h1>Cómo fluyen los datos en la MIR Suite</h1>
+    <p>De los robots físicos al navegador, paso a paso. Cámara, brazos UR5e y MiR200.</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <h2>1. El panorama (paso 0)</h2>
+  <p class="lead">Qué piezas hay y cómo se hablan antes de entrar en cada flujo.</p>
+  <div class="card">
+    <p>Todo corre en <strong>Kevin</strong> (la Jetson AGX Orin) dentro de <strong>contenedores Docker</strong>.
+    Tú abres un <strong>navegador</strong> y la página pide datos; nunca instalas ROS en tu laptop.</p>
+    <ul class="tight">
+      <li><span class="tag host">contenedor</span> <code>mir_ui</code> — sirve la página web y el backend (la API REST en <code>:8080</code>).</li>
+      <li><span class="tag host">contenedor</span> <code>mir_camera</code> — habla con la cámara Orbbec por USB.</li>
+      <li><span class="tag host">contenedor</span> <code>mir_ur_driver</code> — el driver de los brazos UR5e + <code>rosbridge</code> + <code>joint_server</code>.</li>
+      <li><span class="tag host">contenedor</span> <code>mir_mir</code> — el puente que traduce datos del MiR (ROS1 → ROS2).</li>
+    </ul>
+    <p>Dos "idiomas" conviven aquí: <strong>ROS 2</strong> (cómo hablan los robots y los nodos entre sí dentro de Kevin)
+    y <strong>HTTP/WebSocket</strong> (cómo le llega al navegador). Buena parte del trabajo es <em>traducir de uno al otro</em>.</p>
+    <div class="note"><strong>Truco clave:</strong> todos los contenedores usan <code>network_mode: host</code> — comparten la red de Kevin.
+    Por eso un contenedor puede hablarle a otro como si fuera <code>localhost</code>, y ROS 2 (que usa DDS) se descubre entre contenedores sin configurar nada.
+    Se hizo así porque el kernel de la Jetson no soporta las redes "bridge" normales de Docker.</div>
+  </div>
+
+  <h2>2. La cámara Orbbec</h2>
+  <p class="lead">Imagen en vivo: del sensor USB al <code>&lt;img&gt;</code> del navegador.</p>
+  <div class="flow">
+    <div class="node accent"><div class="n-t">Cámara Orbbec</div><div class="n-d">Gemini 335Lg, 1280×800 @ 30fps</div><div class="n-tag"><span class="tag robot">hardware</span></div></div>
+    <div class="arrow"><div class="lbl">USB 3.2</div><div class="line">&rarr;</div></div>
+    <div class="node"><div class="n-t">nodo orbbec_camera</div><div class="n-d">en <code>mir_camera</code></div><div class="n-tag"><span class="tag host">ROS 2</span></div></div>
+    <div class="arrow"><div class="lbl">topic ROS 2<br>(JPEG)</div><div class="line">&rarr;</div></div>
+    <div class="node"><div class="n-t">rosbridge :9090</div><div class="n-d">en <code>mir_ur_driver</code></div><div class="n-tag"><span class="tag host">WebSocket</span></div></div>
+    <div class="arrow"><div class="lbl">ws + base64</div><div class="line">&rarr;</div></div>
+    <div class="node accent"><div class="n-t">Navegador</div><div class="n-d">roslib.js → <code>&lt;img&gt;</code></div><div class="n-tag"><span class="tag web">UI</span></div></div>
+  </div>
+  <div class="card">
+    <p><strong>Paso a paso:</strong></p>
+    <ul class="tight">
+      <li>La cámara se conecta por <strong>USB</strong> a Kevin. El contenedor <code>mir_camera</code> lanza el nodo de Orbbec
+        (<code>ros2 launch orbbec_camera gemini_330_series.launch.py</code>).</li>
+      <li>Ese nodo publica un <strong>topic de ROS 2</strong>: <code>/camera/color/image_raw/compressed</code>. "Compressed" = la imagen ya viene como <strong>JPEG</strong> (más liviana para la red).</li>
+      <li><strong>rosbridge</strong> (que vive dentro de <code>mir_ur_driver</code>) escucha ese topic y lo expone por <strong>WebSocket</strong>. Al hacerlo, convierte los bytes del JPEG a <strong>base64</strong> (texto), que es lo que un navegador puede meter directo en una imagen.</li>
+      <li>El navegador usa la librería <code>roslib.js</code> para suscribirse por WebSocket y pone el resultado en <code>&lt;img src="data:image/jpeg;base64,…"&gt;</code>.</li>
+    </ul>
+    <p class="pill"><strong>Conversiones:</strong> imagen cruda → JPEG (en la cámara) → base64 (en rosbridge). <strong>Transporte:</strong> USB → DDS (ROS 2) → WebSocket.</p>
+  </div>
+
+  <h2>3. Brazos UR5e — leer las posiciones (joints)</h2>
+  <p class="lead">Los 12 ángulos de las articulaciones, en vivo, a la página.</p>
+  <div class="flow">
+    <div class="node accent"><div class="n-t">UR5e .102 / .103</div><div class="n-d">brazos físicos</div><div class="n-tag"><span class="tag robot">hardware</span></div></div>
+    <div class="arrow"><div class="lbl">RTDE<br>(~500 Hz)</div><div class="line">&rarr;</div></div>
+    <div class="node"><div class="n-t">driver UR (duo_ur)</div><div class="n-d">publica <code>/joint_states</code></div><div class="n-tag"><span class="tag host">ROS 2</span></div></div>
+    <div class="arrow"><div class="lbl">se suscribe</div><div class="line">&rarr;</div></div>
+    <div class="node"><div class="n-t">joint_server :9091</div><div class="n-d">guarda el último valor</div><div class="n-tag"><span class="tag host">HTTP</span></div></div>
+    <div class="arrow"><div class="lbl">proxy<br>cache 100ms</div><div class="line">&rarr;</div></div>
+    <div class="node"><div class="n-t">backend /api/ur/joints</div><div class="n-d"><code>mir_ui</code></div><div class="n-tag"><span class="tag host">REST</span></div></div>
+    <div class="arrow"><div class="lbl">fetch<br>cada 250ms</div><div class="line">&rarr;</div></div>
+    <div class="node accent"><div class="n-t">Navegador</div><div class="n-d">panel + visor 3D</div><div class="n-tag"><span class="tag web">UI</span></div></div>
+  </div>
+  <div class="card">
+    <ul class="tight">
+      <li>Los brazos hablan por <strong>RTDE</strong> (<em>Real-Time Data Exchange</em>, el protocolo propio de Universal Robots, sobre TCP). El <strong>driver UR</strong> (paquete <code>duo_ur</code> del workspace de Eemil) mantiene esa conexión y publica el topic <code>/joint_states</code> a unos <strong>400–490 Hz</strong>.</li>
+      <li>Un topic de ROS 2 no lo puede leer un navegador directo. En vez de abrir el topic cada vez (lento), hicimos <code>joint_server.py</code>: un pequeño <strong>servidor HTTP en <code>:9091</code></strong> que se suscribe <em>una sola vez</em> a <code>/joint_states</code> y siempre tiene a mano el último valor en formato JSON.</li>
+      <li>El backend (<code>/api/ur/joints</code>) le hace de <strong>proxy</strong> a ese servidor (con un cache de 100 ms para no saturarlo).</li>
+      <li>La página consulta <code>/api/ur/joints</code> cada 250 ms (un único "poller" compartido que alimenta tanto el panel de números como el visor 3D).</li>
+    </ul>
+    <p class="pill"><strong>Por qué un servidor HTTP y no <code>docker exec</code> por petición:</strong> abrir un proceso por cada lectura tardaba ~200 ms; el servidor persistente responde en ~5–10 ms.</p>
+  </div>
+
+  <h2>4. Brazos UR5e — mover un joint</h2>
+  <p class="lead">Del clic en un botón al movimiento real del codo.</p>
+  <div class="flow">
+    <div class="node accent"><div class="n-t">Botón en la UI</div><div class="n-d">±0.1 / ±0.01 rad</div><div class="n-tag"><span class="tag web">UI</span></div></div>
+    <div class="arrow"><div class="lbl">POST JSON<br>{arm,joint,delta}</div><div class="line">&rarr;</div></div>
+    <div class="node"><div class="n-t">/api/ur/move</div><div class="n-d">valida (Pydantic)</div><div class="n-tag"><span class="tag host">REST</span></div></div>
+    <div class="arrow"><div class="lbl">en un hilo<br>docker exec</div><div class="line">&rarr;</div></div>
+    <div class="node"><div class="n-t">joint_mover.py</div><div class="n-d">arma una trayectoria</div><div class="n-tag"><span class="tag host">ROS 2 action</span></div></div>
+    <div class="arrow"><div class="lbl">action goal</div><div class="line">&rarr;</div></div>
+    <div class="node"><div class="n-t">trajectory_controller</div><div class="n-d">→ RTDE</div><div class="n-tag"><span class="tag host">ROS 2</span></div></div>
+    <div class="arrow"><div class="lbl">RTDE</div><div class="line">&rarr;</div></div>
+    <div class="node accent"><div class="n-t">El brazo se mueve</div><div class="n-tag"><span class="tag robot">hardware</span></div></div>
+  </div>
+  <div class="card">
+    <ul class="tight">
+      <li>La página manda un <code>POST /api/ur/move</code> con <code>{arm, joint, delta}</code> (qué brazo, qué articulación, cuánto en radianes).</li>
+      <li>El backend <strong>valida</strong> con un modelo Pydantic: el brazo debe ser <code>left</code>/<code>right</code>, la articulación una de las 6 válidas, y el <code>delta</code> dentro de un límite seguro. Si algo no cuadra, lo rechaza antes de tocar el robot.</li>
+      <li>Como ejecutar el movimiento toma segundos, el backend lo manda a un <strong>hilo aparte</strong> (no congela el resto de la API mientras el brazo se mueve).</li>
+      <li><code>joint_mover.py</code> lee la posición actual, calcula la meta (actual + delta), y la convierte en una <strong>acción de ROS 2</strong> (<code>FollowJointTrajectory</code>) que envía al controlador de trayectorias. Ese controlador habla con el hardware por RTDE.</li>
+    </ul>
+    <p class="pill"><strong>Conversión central:</strong> JSON del navegador → <em>action goal</em> de ROS 2 (una trayectoria de 2 puntos: posición actual → meta).</p>
+    <div class="warnbox"><strong>Seguridad:</strong> los brazos están montados <em>viendo hacia la espalda</em> del MiR, así que las direcciones +/− pueden ser contrarias a lo esperado. Por eso hay límites en el delta y solo se mueve el codo en pruebas.</div>
+  </div>
+
+  <h2>5. Brazos UR5e — payload (smart skill)</h2>
+  <p class="lead">Decirle al brazo cuánto pesa su herramienta. No lo mueve.</p>
+  <div class="flow">
+    <div class="node accent"><div class="n-t">Panel Smart Skills</div><div class="n-d">masa + CoG</div><div class="n-tag"><span class="tag web">UI</span></div></div>
+    <div class="arrow"><div class="lbl">POST JSON</div><div class="line">&rarr;</div></div>
+    <div class="node"><div class="n-t">/api/ur/payload</div><div class="n-d">valida (Pydantic)</div><div class="n-tag"><span class="tag host">REST</span></div></div>
+    <div class="arrow"><div class="lbl">docker exec<br>ros2 service call</div><div class="line">&rarr;</div></div>
+    <div class="node"><div class="n-t">servicio set_payload</div><div class="n-d"><code>ur_msgs/SetPayload</code></div><div class="n-tag"><span class="tag host">ROS 2 service</span></div></div>
+    <div class="arrow"><div class="lbl">RTDE</div><div class="line">&rarr;</div></div>
+    <div class="node accent"><div class="n-t">Modelo dinámico del brazo</div><div class="n-d">masa/CoG actualizados</div><div class="n-tag"><span class="tag robot">hardware</span></div></div>
+  </div>
+  <div class="card">
+    <p>Aquí la conversión es a un <strong>servicio de ROS 2</strong> (un "llamado": petición → respuesta), no a una acción. El backend traduce <code>{arm, mass, cog}</code> a una llamada <code>ros2 service call … set_payload</code>. El brazo guarda esos valores para compensar la gravedad y detectar colisiones. <strong>No hay movimiento.</strong></p>
+    <p class="pill"><strong>CoG</strong> = centro de gravedad: dónde está concentrado el peso de la herramienta, medido en metros desde la brida de la muñeca.</p>
+  </div>
+
+  <h2>6. MiR200 — telemetría por REST</h2>
+  <p class="lead">Batería, posición y errores del robot móvil. Funciona con el robot en Pause.</p>
+  <div class="flow">
+    <div class="node accent"><div class="n-t">MiR200 .13</div><div class="n-d">API REST en el puerto 80</div><div class="n-tag"><span class="tag robot">hardware</span></div></div>
+    <div class="arrow"><div class="lbl">HTTP GET</div><div class="line">&larr;</div></div>
+    <div class="node"><div class="n-t">/api/mir/status</div><div class="n-d">proxy + mapea campos</div><div class="n-tag"><span class="tag host">REST</span></div></div>
+    <div class="arrow"><div class="lbl">cache 20s<br>+ flag "stale"</div><div class="line">&rarr;</div></div>
+    <div class="node accent"><div class="n-t">Panel MiR</div><div class="n-d">poll cada 4s</div><div class="n-tag"><span class="tag web">UI</span></div></div>
+  </div>
+  <div class="card">
+    <ul class="tight">
+      <li>El MiR trae su propia <strong>API REST</strong> (HTTP en el puerto 80). El backend le hace <code>GET http://192.168.1.13/api/v2.0.0/status</code> y recibe un JSON grande.</li>
+      <li>El backend <strong>mapea</strong> ese JSON a uno más limpio (<code>battery_percentage</code> → <code>battery_pct</code>, <code>state_text</code> → <code>state</code>, etc.).</li>
+      <li>El MiR responde <strong>a ratos</strong>; por eso el backend guarda el último valor por <strong>20 segundos</strong>. Si el MiR no contesta, sirve el último conocido marcado como <code>stale</code> (viejo), y la UI lo avisa con su antigüedad.</li>
+    </ul>
+    <div class="warnbox"><strong>Importante:</strong> el MiR solo es estable en <strong>Pause</strong>. En Play/Running su red se colapsa (errores de seguridad 9000), así que la telemetría solo es fiable con el robot pausado.</div>
+  </div>
+
+  <h2>7. MiR200 — el puente ROS1 → ROS2</h2>
+  <p class="lead">Para traer los topics internos del MiR (mapa, scan, odometría) a nuestro ROS 2.</p>
+  <div class="flow">
+    <div class="node accent"><div class="n-t">MiR rosbridge</div><div class="n-d"><code>ws://192.168.1.13:9090</code> (ROS1)</div><div class="n-tag"><span class="tag robot">hardware</span></div></div>
+    <div class="arrow"><div class="lbl">WebSocket<br>(roslibpy)</div><div class="line">&rarr;</div></div>
+    <div class="node"><div class="n-t">mir_raw.py</div><div class="n-d">descubre ~199 topics</div><div class="n-tag"><span class="tag host">puente</span></div></div>
+    <div class="arrow"><div class="lbl">convierte<br>ROS1 → ROS2</div><div class="line">&rarr;</div></div>
+    <div class="node accent"><div class="n-t">Topics ROS 2 en Kevin</div><div class="n-d">robot_pose, scan, odom…</div><div class="n-tag"><span class="tag host">ROS 2</span></div></div>
+  </div>
+  <div class="card">
+    <p>El MiR por dentro corre <strong>ROS 1</strong> (nosotros usamos ROS 2). El contenedor <code>mir_mir</code> corre <code>mir_raw.py</code> (código de Eemil) que se conecta al rosbridge del MiR por WebSocket, <strong>descubre automáticamente</strong> sus topics y, por cada uno, crea un publicador equivalente en ROS 2.</p>
+    <p><strong>Conversiones ROS1 → ROS2</strong> que hace al traducir cada mensaje:</p>
+    <ul class="tight">
+      <li><code>Time</code>: <code>secs/nsecs</code> (ROS1) → <code>sec/nanosec</code> (ROS2).</li>
+      <li><code>Header</code>: se elimina el campo <code>seq</code> (ya no existe en ROS2).</li>
+      <li><code>CameraInfo</code>: se renombran campos <code>D/K/R/P</code> → <code>d/k/r/p</code>.</li>
+      <li><code>DiagnosticStatus.level</code>: se ajusta al rango válido.</li>
+    </ul>
+    <p class="pill">Un <strong>watchdog</strong> reinicia el puente si se queda "vivo pero sin datos" (el rosbridge del MiR se cuelga seguido). Hoy el puente está apagado: solo se necesita con el MiR activo.</p>
+  </div>
+
+  <h2>8. El visor 3D</h2>
+  <p class="lead">Reusa los mismos datos de joints, sin conexión nueva.</p>
+  <div class="card">
+    <p>El visor <strong>no abre ninguna conexión propia</strong>: lee del mismo poller de <code>/api/ur/joints</code> (paso 3). Con esos 12 ángulos y la <strong>cadena cinemática</strong> del robot (<code>ur5e_chain.json</code>, sacada del modelo URDF), dibuja cada brazo con <strong>primitivos</strong> (cilindros para los eslabones, esferas para las articulaciones) usando Three.js, y rota cada articulación según su ángulo en vivo.</p>
+    <div class="note">Se usan primitivos y no las mallas realistas <code>.dae</code> porque esas, aunque cargan, no se renderizan en el navegador (un problema del archivo). El modelo usa la orientación del URDF; recuerda que el montaje físico real va al revés.</div>
+  </div>
+
+  <h2>9. Glosario rápido</h2>
+  <div class="card">
+    <table>
+      <tr><th>Término</th><th>Qué es</th></tr>
+      <tr><td><strong>ROS 2 topic</strong></td><td>Un "canal" de publicación/suscripción. Un nodo publica (ej. <code>/joint_states</code>) y otros escuchan. Flujo continuo.</td></tr>
+      <tr><td><strong>ROS 2 action</strong></td><td>Para tareas que tardan (ej. mover el brazo): mandas una meta y recibes el resultado al terminar. Lo usamos para mover joints.</td></tr>
+      <tr><td><strong>ROS 2 service</strong></td><td>Petición → respuesta inmediata (ej. <code>set_payload</code>). Como una función remota.</td></tr>
+      <tr><td><strong>DDS</strong></td><td>El "transporte" interno de ROS 2. Gracias a <code>network_mode: host</code>, descubre nodos entre contenedores sin configurar.</td></tr>
+      <tr><td><strong>rosbridge</strong></td><td>Un puente ROS ↔ WebSocket, para que un navegador (que no habla ROS) pueda suscribirse a topics. Lo usamos para la cámara.</td></tr>
+      <tr><td><strong>RTDE</strong></td><td>El protocolo propio de Universal Robots para hablar con los brazos en tiempo real (TCP).</td></tr>
+      <tr><td><strong>REST</strong></td><td>API por HTTP (peticiones GET/POST que devuelven JSON). Así habla el MiR y así habla nuestro backend con el navegador.</td></tr>
+      <tr><td><strong>roslib.js / roslibpy</strong></td><td>Librerías para hablar con rosbridge desde JavaScript (navegador) y desde Python (el puente del MiR).</td></tr>
+    </table>
+  </div>
+
+  <h2>10. Por qué está armado así (decisiones)</h2>
+  <div class="card">
+    <table>
+      <tr><th>Decisión</th><th>Motivo</th></tr>
+      <tr><td><code>network_mode: host</code></td><td>El kernel de la Jetson no soporta las redes bridge de Docker. Compartir la red del host hace que <code>localhost</code> y DDS funcionen entre contenedores.</td></tr>
+      <tr><td>rosbridge dentro de <code>mir_ur_driver</code></td><td>Cuando estaba en un contenedor aparte había problemas de descubrimiento de topics. Junto al driver, son locales.</td></tr>
+      <tr><td><code>joint_server.py</code> (HTTP) en vez de <code>docker exec</code></td><td>Un servidor que se suscribe una vez es ~10× más rápido que abrir un proceso por cada lectura.</td></tr>
+      <tr><td>Workspace de Eemil montado (no copiado)</td><td>Usamos sus paquetes (<code>duo_ur</code>, etc.) sin modificar su código. Regla de aislamiento del proyecto.</td></tr>
+      <tr><td>El driver UR no arranca solo</td><td>El usuario lo inicia desde la UI, para no intentar conectarse a brazos apagados o en error.</td></tr>
+    </table>
+  </div>
+
+  <footer>
+    MIR Suite — documento didáctico de flujo de datos · Kevin (Jetson AGX Orin) · Tampere University<br>
+    Generado el 25 de junio de 2026.
+  </footer>
+</div>
+</body>
+</html>
