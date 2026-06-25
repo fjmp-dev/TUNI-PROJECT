@@ -6,6 +6,7 @@
   import MirPanel from './components/MirPanel.svelte';
   import UrPanel from './components/UrPanel.svelte';
   import Viewer3D from './components/Viewer3D.svelte';
+  import SkillsPanel from './components/SkillsPanel.svelte';
   import LogPanel from './components/LogPanel.svelte';
 
   onMount(() => {
@@ -19,6 +20,7 @@
   <Viewer3D />
   <MirPanel />
   <UrPanel />
+  <div class="full"><SkillsPanel /></div>
   <div class="full"><LogPanel /></div>
 </main>
 

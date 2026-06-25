@@ -35,4 +35,6 @@ export const api = {
   urStop: () => request('/api/ur/stop', { method: 'POST' }),
   urMove: (arm, joint, delta) =>
     request('/api/ur/move', { method: 'POST', body: { arm, joint, delta } }),
+  urPayload: (arm, mass, cog_x, cog_y, cog_z) =>
+    request('/api/ur/payload', { method: 'POST', body: { arm, mass, cog_x, cog_y, cog_z } }),
 };

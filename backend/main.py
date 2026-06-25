@@ -216,6 +216,43 @@ class MoveRequest(BaseModel):
     delta: float = Field(..., ge=-UR_MAX_DELTA, le=UR_MAX_DELTA)
 
 
+class PayloadRequest(BaseModel):
+    """Validated body for /api/ur/payload. Mass bounded to the UR5e limit (5 kg)
+    and CoG to a sane envelope. Setting the payload does not move the arm."""
+    arm: Literal["left", "right"]
+    mass: float = Field(..., ge=0.0, le=5.0)
+    cog_x: float = Field(0.0, ge=-0.5, le=0.5)
+    cog_y: float = Field(0.0, ge=-0.5, le=0.5)
+    cog_z: float = Field(0.0, ge=-0.5, le=0.5)
+
+
+def _run_set_payload(arm: str, mass: float, cx: float, cy: float, cz: float) -> dict:
+    """Set the arm payload via the UR set_payload service. Runs in a worker thread
+    (no event-loop block). No motion is commanded."""
+    try:
+        c = docker_client.containers.get(_ur_container_name())
+    except docker.errors.NotFound:
+        raise HTTPException(404, "UR driver container not found")
+    if c.status != "running":
+        raise HTTPException(400, f"{c.name} not running")
+
+    srv = f"/{arm}_io_and_status_controller/set_payload"
+    body = f"{{mass: {mass}, center_of_gravity: {{x: {cx}, y: {cy}, z: {cz}}}}}"
+    cmd = (
+        "bash -c 'source /opt/ros/humble/setup.bash && "
+        f'ros2 service call {srv} ur_msgs/srv/SetPayload "{body}"\''
+    )
+    try:
+        r = c.exec_run(cmd, stdout=True, stderr=True, demux=False)
+        out = (r.output or b"").decode("utf-8", "replace") if isinstance(r.output, bytes) else str(r.output or "")
+    except Exception as e:
+        raise HTTPException(500, f"exec failed: {e}")
+
+    if r.exit_code != 0 or "success=True" not in out.replace(" ", ""):
+        raise HTTPException(500, f"set_payload failed: {out[:300]}")
+    return {"status": "ok", "arm": arm, "mass": mass, "cog": [cx, cy, cz]}
+
+
 def _run_move(arm: str, joint: str, delta: float) -> dict:
     """Blocking joint move via docker exec. Runs in a worker thread (see ur_move)
     so the long-running exec never blocks the asyncio event loop — otherwise the
@@ -285,6 +322,15 @@ async def ur_move(req: Request):
     # (seconds). Off-load to a thread so concurrent requests — notably the joints
     # polling — keep being served while the arm moves.
     return await asyncio.to_thread(_run_move, move.arm, move.joint, move.delta)
+
+
+@app.post("/api/ur/payload")
+async def ur_payload(body: PayloadRequest):
+    if docker_client is None:
+        raise HTTPException(503, "docker not available")
+    return await asyncio.to_thread(
+        _run_set_payload, body.arm, body.mass, body.cog_x, body.cog_y, body.cog_z
+    )
 
 
 @app.get("/health")
