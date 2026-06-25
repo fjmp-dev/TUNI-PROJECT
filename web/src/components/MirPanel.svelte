@@ -54,38 +54,38 @@
           {data.state}{data.stale ? ` (${data.age_s}s)` : ''}
         </span>
       {:else if offline}
-        <span class="badge">sin conexión</span>
+        <span class="badge">offline</span>
       {/if}
-      <button onclick={() => { failCount = 0; refresh(); }}>Actualizar</button>
+      <button onclick={() => { failCount = 0; refresh(); }}>Refresh</button>
     </div>
   </div>
   <div class="panel-body">
     {#if offline && !data}
       <div class="offline">
-        MiR sin conexión — probablemente apagado.
-        <div class="muted">Se reintenta automáticamente. Solo responde encendido y en Pause.</div>
+        MiR offline — likely powered off.
+        <div class="muted">Retrying automatically. It only responds when powered on and in Pause.</div>
       </div>
     {:else if data}
       {#if data.stale}
-        <div class="stale-banner">Datos de hace {data.age_s}s — el MiR no respondió (intermitente). Reintentando…</div>
+        <div class="stale-banner">Data from {data.age_s}s ago — MiR didn't respond (intermittent). Retrying…</div>
       {/if}
       <div class="battery">
-        <div class="stat-label">Batería</div>
+        <div class="stat-label">Battery</div>
         <div class="bar"><div class="fill {batteryClass(data.battery_pct)}" style="width:{data.battery_pct}%"></div></div>
         <div class="stat-value">{data.battery_pct?.toFixed(1)}% · {fmtTime(data.battery_time_s)}</div>
       </div>
       <div class="stat-grid">
-        <div><div class="stat-label">Posición</div><div class="stat-value mono">x {data.position?.x?.toFixed(2)} · y {data.position?.y?.toFixed(2)} · θ {deg(data.position?.orientation)}°</div></div>
-        <div><div class="stat-label">Velocidad</div><div class="stat-value mono">{data.velocity?.linear?.toFixed(2)} m/s · {data.velocity?.angular?.toFixed(2)} rad/s</div></div>
-        <div><div class="stat-label">Modo</div><div class="stat-value">{data.mode || '--'}</div></div>
-        <div><div class="stat-label">Misión</div><div class="stat-value">{data.mission || '--'}</div></div>
+        <div><div class="stat-label">Position</div><div class="stat-value mono">x {data.position?.x?.toFixed(2)} · y {data.position?.y?.toFixed(2)} · θ {deg(data.position?.orientation)}°</div></div>
+        <div><div class="stat-label">Velocity</div><div class="stat-value mono">{data.velocity?.linear?.toFixed(2)} m/s · {data.velocity?.angular?.toFixed(2)} rad/s</div></div>
+        <div><div class="stat-label">Mode</div><div class="stat-value">{data.mode || '--'}</div></div>
+        <div><div class="stat-label">Mission</div><div class="stat-value">{data.mission || '--'}</div></div>
         <div>
-          <div class="stat-label">Errores</div>
+          <div class="stat-label">Errors</div>
           <div class="stat-value" class:has-err={data.errors?.length}>{data.errors?.length || 0}</div>
         </div>
       </div>
     {:else}
-      <div class="muted">Cargando…</div>
+      <div class="muted">Loading…</div>
     {/if}
   </div>
 </div>

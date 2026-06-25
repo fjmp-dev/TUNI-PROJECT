@@ -7,9 +7,9 @@
     <h1>MIR Suite</h1>
     <span class="sub">Kevin · Jetson AGX Orin</span>
   </div>
-  <div class="conn" title="Estado de rosbridge">
+  <div class="conn" title="rosbridge status">
     <span class="dot" class:on={rosState.connected}></span>
-    <span>{rosState.connected ? 'Conectado' : 'Desconectado'}</span>
+    <span>{rosState.connected ? 'Connected' : 'Disconnected'}</span>
   </div>
 </header>
 

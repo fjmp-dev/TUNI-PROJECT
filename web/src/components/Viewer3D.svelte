@@ -92,9 +92,12 @@
   // Frame the camera to the loaded arms so they're always in view regardless of
   // mesh scale/orientation.
   function frameCamera() {
+    // Matrices must be current or the bounding box is computed from stale/identity
+    // world transforms, putting the camera nowhere near the arms.
+    scene.updateMatrixWorld(true);
     const box = new THREE.Box3();
     for (const g of armGroups) box.expandByObject(g);
-    if (box.isEmpty()) return;
+    if (box.isEmpty() || !isFinite(box.min.x)) return;
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3()).length() || 1;
     camera.near = size / 100;
@@ -178,9 +181,9 @@
       await loadArm('left', chain);
       await loadArm('right', chain);
       frameCamera();
-      log('Visor 3D: brazos cargados', 'success');
+      log('3D viewer: arms loaded', 'success');
     } catch (e) {
-      log('Visor 3D: error cargando mallas: ' + e.message, 'error');
+      log('3D viewer: error loading meshes: ' + e.message, 'error');
     } finally {
       loading = false;
     }
@@ -198,19 +201,19 @@
 
 <div class="panel">
   <div class="panel-header">
-    <h2>Visor 3D — UR5e</h2>
+    <h2>3D Viewer — UR5e</h2>
     <span class="badge" class:ok={!loading && !webglError}>
-      {webglError ? 'WebGL no disponible' : loading ? 'cargando…' : 'en vivo'}
+      {webglError ? 'WebGL unavailable' : loading ? 'loading…' : 'live'}
     </span>
   </div>
   <div class="panel-body">
     <div class="view" bind:this={container}>
       {#if webglError}
-        <div class="msg">Este navegador no tiene WebGL disponible.</div>
+        <div class="msg">This browser has no WebGL available.</div>
       {/if}
     </div>
     <div class="hint">
-      Joints en vivo. El modelo usa la orientación del URDF; el montaje físico real va al revés.
+      Live joints. The model uses the URDF orientation; the physical arms are mounted reversed.
     </div>
   </div>
 </div>

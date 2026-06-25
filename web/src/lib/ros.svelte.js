@@ -17,14 +17,14 @@ export function connectRos() {
 
   ros.on('connection', () => {
     rosState.connected = true;
-    log('Conectado a rosbridge', 'success');
+    log('Connected to rosbridge', 'success');
   });
   ros.on('error', () => {
     rosState.connected = false;
   });
   ros.on('close', () => {
     rosState.connected = false;
-    log('rosbridge desconectado, reintentando en 5s...', 'error');
+    log('rosbridge disconnected, retrying in 5s…', 'error');
     setTimeout(connectRos, 5000);
   });
 

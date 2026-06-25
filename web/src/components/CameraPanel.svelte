@@ -60,18 +60,18 @@
 
 <div class="panel">
   <div class="panel-header">
-    <h2>Cámara Orbbec</h2>
+    <h2>Orbbec Camera</h2>
     <div class="hdr-right">
       <span class="badge">{fps} FPS</span>
-      <button onclick={toggle}>{active ? 'Detener' : 'Iniciar'}</button>
+      <button onclick={toggle}>{active ? 'Stop' : 'Start'}</button>
     </div>
   </div>
   <div class="panel-body">
     <div class="view">
       {#if imgSrc}
-        <img src={imgSrc} alt="cámara" />
+        <img src={imgSrc} alt="camera" />
       {:else}
-        <div class="placeholder">{active ? 'Esperando imagen…' : 'Detenida'}</div>
+        <div class="placeholder">{active ? 'Waiting for image…' : 'Stopped'}</div>
       {/if}
     </div>
   </div>

@@ -31,12 +31,12 @@
 
   async function start() {
     busy = true;
-    log('Iniciando driver UR...', 'info');
+    log('Starting UR driver…', 'info');
     try {
       await api.urStart();
-      log('Driver UR lanzándose (puede tardar ~60-90s)', 'success');
+      log('UR driver launching (may take ~60-90s)', 'success');
     } catch (e) {
-      log(`Start falló: ${e.message}`, 'error');
+      log(`Start failed: ${e.message}`, 'error');
     } finally {
       busy = false;
     }
@@ -44,24 +44,24 @@
 
   async function stop() {
     busy = true;
-    log('Deteniendo driver UR...', 'info');
+    log('Stopping UR driver…', 'info');
     try {
       await api.urStop();
-      log('Driver UR detenido', 'success');
+      log('UR driver stopped', 'success');
     } catch (e) {
-      log(`Stop falló: ${e.message}`, 'error');
+      log(`Stop failed: ${e.message}`, 'error');
     } finally {
       busy = false;
     }
   }
 
   async function move(arm, delta) {
-    log(`Moviendo ${arm} elbow ${delta > 0 ? '+' : ''}${delta}...`, 'info');
+    log(`Moving ${arm} elbow ${delta > 0 ? '+' : ''}${delta}…`, 'info');
     try {
       const r = await api.urMove(arm, 'elbow', delta);
       log(r.message || `OK ${arm} elbow ${delta}`, 'success');
     } catch (e) {
-      log(`Move falló: ${e.message}`, 'error');
+      log(`Move failed: ${e.message}`, 'error');
     }
   }
 
@@ -78,10 +78,10 @@
 
 <div class="panel">
   <div class="panel-header">
-    <h2>Brazos UR5e · .102 / .103</h2>
+    <h2>UR5e Arms · .102 / .103</h2>
     <div class="hdr-right">
       <span class="badge {status.driver_running ? 'ok' : ''}">
-        {status.driver_running ? 'driver activo' : status.container_running ? 'driver parado' : 'sin contenedor'}
+        {status.driver_running ? 'driver active' : status.container_running ? 'driver stopped' : 'no container'}
       </span>
       <button class="btn-accent" onclick={start} disabled={busy || status.driver_running}>Start</button>
       <button class="btn-danger" onclick={stop} disabled={busy || !status.driver_running}>Stop</button>
@@ -92,16 +92,16 @@
       {#if joints && !joints.stale}
         12 joints @ 400Hz <span class="muted">(age {joints.age_s?.toFixed?.(3) ?? '?'}s)</span>
       {:else if joints && joints.stale}
-        <span class="muted">joints sin datos frescos</span>
+        <span class="muted">no fresh joint data</span>
       {:else}
-        <span class="muted">sin joints (driver parado)</span>
+        <span class="muted">no joints (driver stopped)</span>
       {/if}
     </div>
 
     <div class="arms">
       {#each ['left', 'right'] as arm}
         <div class="arm">
-          <div class="arm-title">{arm === 'left' ? 'Izquierdo' : 'Derecho'}</div>
+          <div class="arm-title">{arm === 'left' ? 'Left' : 'Right'}</div>
           <div class="joint-grid">
             {#each JOINTS as [key, label]}
               <div class="jname">{label}</div>
@@ -109,7 +109,7 @@
             {/each}
           </div>
           <div class="elbow-controls">
-            <span class="muted">codo:</span>
+            <span class="muted">elbow:</span>
             <button onclick={() => move(arm, -0.1)} disabled={!status.driver_running}>-0.1</button>
             <button onclick={() => move(arm, -0.01)} disabled={!status.driver_running}>-0.01</button>
             <button onclick={() => move(arm, 0.01)} disabled={!status.driver_running}>+0.01</button>
@@ -120,8 +120,8 @@
     </div>
 
     <div class="safety">
-      Nota: los brazos están montados viendo hacia la espalda del MiR. Las direcciones +/− pueden
-      ser contrarias a lo esperado. Solo se mueve el codo; verificar visualmente.
+      Note: the arms are mounted facing the back of the MiR. +/− directions may be opposite to
+      what you expect. Only the elbow moves; verify visually.
     </div>
   </div>
 </div>

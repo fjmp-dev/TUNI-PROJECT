@@ -4,15 +4,15 @@
 
 <div class="panel">
   <div class="panel-header">
-    <h2>Registro</h2>
-    <button onclick={clearLog}>Limpiar</button>
+    <h2>Log</h2>
+    <button onclick={clearLog}>Clear</button>
   </div>
   <div class="panel-body log">
     {#each logState.entries.slice().reverse() as e}
       <div class="log-entry {e.kind}"><span class="t">{e.time}</span> {e.message}</div>
     {/each}
     {#if logState.entries.length === 0}
-      <div class="empty">Sin eventos.</div>
+      <div class="empty">No events.</div>
     {/if}
   </div>
 </div>
