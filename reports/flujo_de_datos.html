@@ -100,7 +100,7 @@
     <p>Todo corre en <strong>Kevin</strong> (la Jetson AGX Orin) dentro de <strong>contenedores Docker</strong>.
     Tú abres un <strong>navegador</strong> y la página pide datos; nunca instalas ROS en tu laptop.</p>
     <ul class="tight">
-      <li><span class="tag host">contenedor</span> <code>mir_ui</code> — sirve la página web y el backend (la API REST en <code>:8080</code>).</li>
+      <li><span class="tag host">contenedor</span> <code>mir_ui</code> — sirve la página web y el backend (la API REST en el <strong>puerto 80</strong>). Se abre en <code>http://tunisuite.local</code> (nombre publicado por mDNS) con <strong>login</strong> (admin). Todos los <code>/api/*</code> piden un token de sesión.</li>
       <li><span class="tag host">contenedor</span> <code>mir_camera</code> — habla con la cámara Orbbec por USB.</li>
       <li><span class="tag host">contenedor</span> <code>mir_ur_driver</code> — el driver de los brazos UR5e + <code>rosbridge</code> + <code>joint_server</code>.</li>
       <li><span class="tag host">contenedor</span> <code>mir_mir</code> — el puente que traduce datos del MiR (ROS1 → ROS2).</li>

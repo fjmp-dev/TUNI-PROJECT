@@ -1,6 +1,6 @@
 # MIR Suite - Documentacion Completa del Proyecto
 
-**Ultima actualizacion:** 23 de junio de 2026
+**Ultima actualizacion:** 25 de junio de 2026
 **Ubicacion:** `/home/lab/Desktop/MIR/mir_suite`
 **Repositorio:** `github.com/fjmp-dev/TUNI-PROJECT`
 **Host:** Kevin (MIC-733 / NVIDIA Jetson AGX Orin)
@@ -38,18 +38,25 @@ Construir una suite modular de contenedores Docker para controlar el robot MiR20
 
 - **Modularidad:** Cada componente (camara, driver UR, bridge MiR, UI) en su propio contenedor Docker
 - **Seguridad:** No modificar, copiar ni alterar los proyectos originales de Eemil (`pbd_system/`, `pandai_ark/`, `teleop/`, `ur_ws/`, `aiprism_ws/`)
-- **Web-first:** Todo accesible via navegador en `http://192.168.1.75:8080`
+- **Web-first:** Todo accesible via navegador en `http://tunisuite.local` (o `http://192.168.1.75`), con login
 - **Docker-native:** Todo containerizado, usando `network_mode: host` porque el kernel del Jetson no soporta redes bridge de Docker
 - **Control manual:** Los servicios criticos (driver UR) no se inician automaticamente; el usuario los activa desde la UI
 
-### Estado actual (22-Jun-2026)
+### Acceso
+
+- **URL:** `http://tunisuite.local` (nombre via mDNS/Avahi, publicado por Kevin; tambien `http://192.168.1.75`). Sin el `:8080` — la UI escucha en el **puerto 80** (`UI_PORT`).
+- **Login:** un solo usuario admin (`admin`/`admin` por defecto, configurable en `config/.env`: `AUTH_USER`/`AUTH_PASS`/`AUTH_TOKEN`).
+- **Red:** acceso solo desde la red local del lab (`192.168.1.0/24`, p. ej. WiFi del DD-WRT o la Teltonika). No expuesto a internet publico (controla robots).
+
+### Estado actual (25-Jun-2026)
 
 | Componente | Estado |
 |---|---|
-| Pagina web (mir_ui) | Funcionando. Panel de camara, MiR, brazos UR5e |
+| UI web (Svelte) | Funcionando. Login, camara, MiR, UR5e, visor 3D, smart skills. Servida en :80 desde la imagen |
 | Camara Orbbec | Funcionando. 30 FPS, 1280x800 MJPG |
-| Brazos UR5e | Ambos funcionales. 12 joints en vivo, codos controlables desde UI |
-| MiR200 | Inestable. Funciona en Pause via REST API. Errores fisicos en Play |
+| Brazos UR5e | Ambos funcionales. 12 joints en vivo, control de codos, payload y freedrive desde la UI |
+| Visor 3D | Funcionando con primitivos (cilindros+esferas) animados desde /joint_states |
+| MiR200 | Inestable. Funciona en Pause via REST API. Errores fisicos (9000) en Play |
 | Sensores Nordbo | Responden en red. No integrados en UI aun |
 
 ---
@@ -170,29 +177,32 @@ MiR200 → rosbridge :9090 → mir_mir container (mir_raw.py)
 
 ### mir_ui
 
-**Dockerfile:** `docker/ui/Dockerfile`
-**Base:** `python:3.11-slim`
-**Dependencias:** fastapi, uvicorn, docker, httpx
+**Dockerfile:** `docker/ui/Dockerfile` (**multi-stage**: etapa Node compila la UI Svelte con `npm run build`, etapa Python sirve el `dist/`)
+**Base:** `node:20-slim` (build) + `python:3.11-slim` (runtime)
+**Dependencias:** fastapi, uvicorn, docker, httpx, pydantic
+**Puerto:** 80 (`UI_PORT`)
+
+**Autenticacion:** un middleware exige `X-MIR-Token` en todo `/api/*` excepto `/api/login` y `/health`; los estaticos quedan publicos para que cargue el login.
 
 **Endpoints:**
-- `GET /` — sirve la pagina web principal
-- `GET /health` — health check
+- `GET /` — sirve la UI Svelte compilada (SPA)
+- `GET /health` — health check (publico)
+- `POST /api/login` — login admin; devuelve el token (publico)
 - `GET /api/containers` — lista de contenedores
-- `POST /api/containers/{name}/start` — iniciar contenedor
-- `POST /api/containers/{name}/stop` — detener contenedor
-- `GET /api/mir/status` — proxy REST al MiR200
-- `GET /api/ur/status` — estado del driver UR
-- `POST /api/ur/start` — iniciar driver UR
-- `POST /api/ur/stop` — detener driver UR
+- `POST /api/containers/{name}/start|stop` — iniciar/detener contenedor
+- `GET /api/mir/status` — proxy REST al MiR200 (cache 20s, flag stale)
+- `GET /api/ur/status` — estado del driver UR (pgrep con truco del corchete)
+- `POST /api/ur/start` / `POST /api/ur/stop` — iniciar/detener driver UR
 - `GET /api/ur/joints` — proxy HTTP al joint_server
-- `POST /api/ur/move` — mover un joint del UR5e
+- `POST /api/ur/move` — mover un joint (validado con Pydantic, ejecuta en thread)
+- `POST /api/ur/payload` — setear payload (servicio set_payload)
+- `POST /api/ur/freedrive` — activar/desactivar freedrive por brazo
 
 **Volumenes:**
 ```yaml
-- ./backend/main.py:/app/main.py
-- ./frontend:/app/static
-- ./models:/app/static/models
+- ./backend/main.py:/app/main.py   # solo main.py; la UI va horneada en la imagen
 - /var/run/docker.sock:/var/run/docker.sock
+# env_file: ./config/.env  (MIR_IP, UI_PORT, AUTH_*, MIR_CACHE_TTL, ...)
 ```
 
 ### mir_ur_driver
@@ -291,7 +301,11 @@ MiR200 → rosbridge :9090 → mir_mir container (mir_raw.py)
 | `/api/ur/start` | POST | Inicia el driver UR via `ur_start.sh` en background |
 | `/api/ur/stop` | POST | Detiene el driver UR via `ur_stop.sh` |
 | `/api/ur/joints` | GET | Proxy a `http://localhost:9091/joints`. Devuelve los 12 joints. Cache 100ms. |
-| `/api/ur/move` | POST | Mueve un joint. Body: `{"arm":"left|right", "joint":"elbow|shoulder_pan|...", "delta": +0.1}`. Auto-recovery si falla. |
+| `/api/ur/move` | POST | Mueve un joint. Body: `{"arm","joint","delta"}` (validado con Pydantic). Corre en thread (no bloquea). Auto-recovery si falla. |
+| `/api/ur/payload` | POST | Setea el payload del brazo via servicio `set_payload`. Body: `{"arm","mass","cog_x","cog_y","cog_z"}`. No mueve. |
+| `/api/ur/freedrive` | POST | Activa/desactiva freedrive por brazo. Body: `{"arm","enable"}`. Cambia de controller + publicador deadman. |
+
+Todos los `/api/*` (excepto `/api/login`) exigen el header `X-MIR-Token` (auth).
 
 **Respuesta de `/api/ur/joints`:**
 ```json
@@ -317,40 +331,33 @@ Si el movimiento falla con "goal rejected", el backend automaticamente:
 
 ## 6. Interfaz Web
 
-### Archivo
+### Stack
 
-`frontend/index.html` — una sola pagina (SPA) con todo el HTML, CSS y JavaScript.
+Reescrita en **Vite + Svelte 5** (carpeta `web/`), reemplazando el `frontend/index.html` monolitico viejo (jubilado, queda como referencia). Texto de la UI en **ingles**. Se compila a estaticos y FastAPI los sirve (no hace falta dev server en produccion). Para iterar: `cd web && npm run dev` levanta un dev server en `:5173` con proxy de `/api` al backend.
 
-### Modulos
+### Componentes (`web/src/components/`)
 
-1. **Header:** Titulo "MIR Suite", indicador de conexion (rosbridge)
-2. **Camara Orbbec:** Video en vivo (JPEG via rosbridge), boton Stop/Start, FPS counter
-3. **Panel MiR200:** Bateria con barra de color, posicion, velocidad, estado, modo, mision, errores. Polling REST cada 4s. Cache 60s con indicador de stale.
-4. **Panel UR5e:** Estado del driver, boton Start/Stop, grilla de 12 joints en vivo, botones de control de codos (8 botones)
-5. **Log:** Registro de eventos con timestamps, colores por tipo (info, success, error)
+1. **Login:** pantalla de acceso (admin/admin) — se muestra hasta autenticar.
+2. **Header:** titulo, indicador de conexion rosbridge, boton "Sign out".
+3. **CameraPanel:** video en vivo (JPEG via rosbridge/roslib), FPS, Start/Stop.
+4. **MirPanel:** bateria con barra, posicion, velocidad, modo, mision, errores. Polling REST con backoff; banner claro de datos "stale".
+5. **UrPanel:** estado del driver, Start/Stop, 12 joints en vivo, control de codos (deshabilitado si el brazo esta en freedrive).
+6. **Viewer3D:** brazos UR5e en 3D con **primitivos** (cilindros+esferas) animados desde `/joint_states`. No usa las mallas `.dae` (no renderizan).
+7. **SkillsPanel:** **Payload** (masa + CoG) y **Freedrive** (toggle por brazo, con nota de seguridad). Force-mode/align-to-plane pendientes (Nordbo F/T).
+8. **LogPanel:** registro de eventos.
 
-### Conexiones
+### Capa de datos (`web/src/lib/`)
 
-- **rosbridge:** `ws://localhost:9090` via libreria roslib.js (CDN)
-- **Camara:** Suscripcion a `/camera/color/image_raw/compressed` via rosbridge
-- **Joints:** Polling REST a `/api/ur/joints` cada 200ms
-- **MiR:** Polling REST a `/api/mir/status` cada 4s
-- **Estado UR:** Polling REST a `/api/ur/status` cada 5s
+- `config.js` — config central (API base, `ws://…:9090`, topics, intervalos, token).
+- `api.js` — cliente REST; manda el `X-MIR-Token`; en 401 vuelve al login.
+- `auth.svelte.js` — estado de sesion (token en localStorage).
+- `joints.svelte.js` — poller compartido de `/api/ur/joints` (alimenta UrPanel + Viewer3D).
+- `ros.svelte.js` — conexion rosbridge (cámara, estado conectado).
+- `skills.svelte.js`, `log.svelte.js` — estado compartido (freedrive, log).
 
-### Botones de control de codos
+### Nota de seguridad (brazos)
 
-| Boton | Brazo | Delta |
-|---|---|---|
-| -0.1 | Left elbow | -0.1 rad (~-5.7 deg) |
-| +0.1 | Left elbow | +0.1 rad (~+5.7 deg) |
-| -0.01 | Left elbow | -0.01 rad (~-0.57 deg) |
-| +0.01 | Left elbow | +0.01 rad (~+0.57 deg) |
-| -0.1 | Right elbow | -0.1 rad (~-5.7 deg) |
-| +0.1 | Right elbow | +0.1 rad (~+5.7 deg) |
-| -0.01 | Right elbow | -0.01 rad (~-0.57 deg) |
-| +0.01 | Right elbow | +0.01 rad (~+0.57 deg) |
-
-**Nota de seguridad:** Los brazos estan montados al reves (hacia la espalda del MiR). Las direcciones + y - pueden corresponder a movimientos contrarios a lo esperado. Solo movemos codos. Munecas no se tocan.
+Los brazos estan montados **al reves** (hacia la espalda del MiR). Las direcciones + y - pueden corresponder a movimientos contrarios a lo esperado. En pruebas solo se mueve el codo; munecas no se tocan. El visor 3D muestra los joints tal cual (no compensa el montaje).
 
 ---
 
@@ -524,11 +531,17 @@ mir_suite/
 ├── .gitignore
 │
 ├── backend/
-│   ├── main.py                      # FastAPI server con todos los endpoints
-│   └── requirements.txt             # fastapi, uvicorn, docker, httpx
+│   ├── main.py                      # FastAPI: auth + endpoints + sirve la UI compilada
+│   └── requirements.txt             # fastapi, uvicorn, docker, httpx, pydantic
+│
+├── web/                             # UI nueva (Vite + Svelte 5) — la que se usa
+│   ├── src/components/              # Login, Header, CameraPanel, MirPanel, UrPanel, Viewer3D, SkillsPanel, LogPanel
+│   ├── src/lib/                     # config, api, auth, joints, ros, skills, log (stores)
+│   ├── public/models/              # mallas .dae copiadas de ../models (gitignored, via prebuild)
+│   └── package.json, vite.config.js
 │
 ├── frontend/
-│   └── index.html                   # UI web (SPA con HTML+CSS+JS)
+│   └── index.html                   # UI vieja (JUBILADA — ya no se sirve, queda como referencia)
 │
 ├── scripts/
 │   ├── ur_entrypoint.sh             # Entrypoint del contenedor mir_ur_driver
@@ -610,6 +623,12 @@ docker compose up -d
 docker compose --profile arms up -d
 ```
 
+### Acceso a la UI
+
+Abrir en un navegador (en la red local del lab): **`http://tunisuite.local`** (o `http://192.168.1.75`).
+Login: `admin` / `admin`. El nombre `tunisuite.local` lo publica Kevin por mDNS
+(`avahi-publish`, con entrada `@reboot` en el crontab para que persista).
+
 ### Ver logs
 
 ```bash
@@ -621,21 +640,24 @@ docker logs -f mir_mir
 
 ### Controlar el driver UR desde linea de comandos
 
+Los `/api/*` exigen el token de auth. Primero hay que loguearse:
+
 ```bash
-# Iniciar
-curl -X POST http://localhost:8080/api/ur/start
+# Obtener el token
+TOK=$(curl -s -X POST http://localhost/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
 
-# Detener
-curl -X POST http://localhost:8080/api/ur/stop
+# Iniciar / detener el driver
+curl -X POST http://localhost/api/ur/start -H "X-MIR-Token: $TOK"
+curl -X POST http://localhost/api/ur/stop  -H "X-MIR-Token: $TOK"
 
-# Ver estado
-curl http://localhost:8080/api/ur/status
-
-# Ver joints
-curl http://localhost:8080/api/ur/joints | python3 -m json.tool
+# Ver estado / joints
+curl http://localhost/api/ur/status -H "X-MIR-Token: $TOK"
+curl http://localhost/api/ur/joints -H "X-MIR-Token: $TOK" | python3 -m json.tool
 
 # Mover codo izquierdo +0.1 rad
-curl -X POST http://localhost:8080/api/ur/move \
+curl -X POST http://localhost/api/ur/move -H "X-MIR-Token: $TOK" \
   -H "Content-Type: application/json" \
   -d '{"arm":"left","joint":"elbow","delta":0.1}'
 ```
@@ -643,9 +665,9 @@ curl -X POST http://localhost:8080/api/ur/move \
 ### Reconstruir un contenedor
 
 ```bash
-# UI
-docker build --network host -t mir-ui:latest -f docker/ui/Dockerfile . && \
-  docker tag mir-ui:latest mir_ui:latest && docker restart mir_ui
+# UI (multi-stage: compila la UI Svelte y la hornea en la imagen)
+docker build --network host -t mir_ui:latest -f docker/ui/Dockerfile . && \
+  docker compose up -d mir_ui
 
 # UR driver
 docker build --network host -t mir-ur-driver:latest -f docker/ur_driver/Dockerfile . && \
