@@ -1,0 +1,12 @@
+# Keep the Docker build context small.
+**/node_modules
+web/dist
+web/public/models
+logs
+reports
+docs
+*.pyc
+__pycache__
+.git
+.gitignore
+*.md

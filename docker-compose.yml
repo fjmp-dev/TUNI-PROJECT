@@ -10,9 +10,9 @@ services:
     env_file:
       - ./config/.env
     volumes:
+      # The Svelte UI is baked into the image (multi-stage build). Only main.py is
+      # mounted so backend tweaks don't need a rebuild.
       - ./backend/main.py:/app/main.py
-      - ./frontend:/app/static
-      - ./models:/app/static/models
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 

@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError
 from typing import Literal
 import uvicorn
@@ -421,14 +420,10 @@ def _format_mir_status(data):
     }
 
 
-# Serve index.html at root
-@app.get("/")
-async def root():
-    return FileResponse("static/index.html")
-
-
-# Mount static files at /static (JS, CSS, 3D models)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Serve the built Svelte UI (static/ = the Vite dist: index.html + assets + models).
+# Mounted LAST so the /api/* routes above take precedence; html=True returns
+# index.html for "/" and serves the bundled assets and /models for everything else.
+app.mount("/", StaticFiles(directory="static", html=True), name="ui")
 
 
 if __name__ == "__main__":
