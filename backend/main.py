@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 from typing import Literal
 import uvicorn
@@ -23,6 +24,35 @@ JOINT_SERVER_URL = os.getenv("JOINT_SERVER_URL", "http://localhost:9091/joints")
 UR_JOINTS_TTL = float(os.getenv("UR_JOINTS_TTL", "0.1"))      # joints proxy cache (s) -> ~10Hz
 UR_MAX_DELTA = float(os.getenv("UR_MAX_DELTA", "0.5"))        # max |delta| per single joint move (rad)
 UR_STOP_TIMEOUT = int(os.getenv("UR_STOP_TIMEOUT", "10"))     # ur_stop.sh hard timeout (s)
+
+# Auth: a single admin login gates the /api/* endpoints. Defaults to admin/admin;
+# override in config/.env. The token issued on login is what clients send back
+# (header X-MIR-Token). Static files and /api/login and /health stay public so the
+# login screen can load.
+AUTH_USER = os.getenv("AUTH_USER", "admin")
+AUTH_PASS = os.getenv("AUTH_PASS", "admin")
+AUTH_TOKEN = os.getenv("AUTH_TOKEN", "mir-suite-session-token")
+
+
+@app.middleware("http")
+async def _auth_gate(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/") and path != "/api/login":
+        if request.headers.get("X-MIR-Token") != AUTH_TOKEN:
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return await call_next(request)
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/login")
+async def login(body: LoginRequest):
+    if body.username == AUTH_USER and body.password == AUTH_PASS:
+        return {"token": AUTH_TOKEN}
+    raise HTTPException(401, "invalid credentials")
 
 # ============================================================
 # Docker service management (requires /var/run/docker.sock)

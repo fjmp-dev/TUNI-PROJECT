@@ -1,6 +1,7 @@
 <script>
-  import { onMount } from 'svelte';
   import { connectRos } from './lib/ros.svelte.js';
+  import { auth } from './lib/auth.svelte.js';
+  import Login from './components/Login.svelte';
   import Header from './components/Header.svelte';
   import CameraPanel from './components/CameraPanel.svelte';
   import MirPanel from './components/MirPanel.svelte';
@@ -9,20 +10,29 @@
   import SkillsPanel from './components/SkillsPanel.svelte';
   import LogPanel from './components/LogPanel.svelte';
 
-  onMount(() => {
-    connectRos();
+  // Connect rosbridge once, after the user is authenticated.
+  let rosStarted = false;
+  $effect(() => {
+    if (auth.token && !rosStarted) {
+      rosStarted = true;
+      connectRos();
+    }
   });
 </script>
 
-<Header />
-<main class="grid">
-  <CameraPanel />
-  <Viewer3D />
-  <MirPanel />
-  <UrPanel />
-  <div class="full"><SkillsPanel /></div>
-  <div class="full"><LogPanel /></div>
-</main>
+{#if !auth.token}
+  <Login />
+{:else}
+  <Header />
+  <main class="grid">
+    <CameraPanel />
+    <Viewer3D />
+    <MirPanel />
+    <UrPanel />
+    <div class="full"><SkillsPanel /></div>
+    <div class="full"><LogPanel /></div>
+  </main>
+{/if}
 
 <style>
   .grid {

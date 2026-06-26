@@ -14,6 +14,18 @@ async function request(path, { method = 'GET', body } = {}) {
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
+  // Token expired/invalid (or auth turned on): drop it and return to the login
+  // screen. /api/login itself surfaces its 401 to the caller instead.
+  if (res.status === 401 && path !== '/api/login') {
+    try {
+      localStorage.removeItem('mir_token');
+    } catch {
+      /* ignore */
+    }
+    location.reload();
+    return;
+  }
+
   let data = null;
   try {
     data = await res.json();
@@ -28,6 +40,8 @@ async function request(path, { method = 'GET', body } = {}) {
 }
 
 export const api = {
+  login: (username, password) =>
+    request('/api/login', { method: 'POST', body: { username, password } }),
   mirStatus: () => request('/api/mir/status'),
   urStatus: () => request('/api/ur/status'),
   urJoints: () => request('/api/ur/joints'),
