@@ -1,6 +1,7 @@
 <script>
   import { api } from '../lib/api.js';
   import { log } from '../lib/log.svelte.js';
+  import { freedrive } from '../lib/skills.svelte.js';
 
   let arm = $state('left');
   let mass = $state(0.0);
@@ -8,6 +9,22 @@
   let cogY = $state(0.0);
   let cogZ = $state(0.0);
   let busy = $state(false);
+  let fdBusy = $state(false);
+
+  async function toggleFreedrive(side) {
+    fdBusy = true;
+    const target = !freedrive[side];
+    log(`Freedrive ${side}: ${target ? 'enabling' : 'disabling'}…`, 'info');
+    try {
+      const r = await api.urFreedrive(side, target);
+      freedrive[side] = r.freedrive;
+      log(`Freedrive ${side} ${r.freedrive ? 'ON — you can hand-guide now' : 'OFF'}`, 'success');
+    } catch (e) {
+      log(`Freedrive ${side} failed: ${e.message}`, 'error');
+    } finally {
+      fdBusy = false;
+    }
+  }
 
   async function applyPayload() {
     busy = true;
@@ -50,9 +67,24 @@
       </div>
     </div>
 
+    <div class="skill">
+      <div class="skill-title">Freedrive (hand-guide)</div>
+      <div class="row">
+        {#each ['left', 'right'] as side}
+          <button class="fd-btn" class:on={freedrive[side]} disabled={fdBusy} onclick={() => toggleFreedrive(side)}>
+            {side === 'left' ? 'Left' : 'Right'}: {freedrive[side] ? 'ON — click to disable' : 'enable'}
+          </button>
+        {/each}
+      </div>
+      <div class="note danger">
+        Makes the arm <strong>compliant</strong> (movable by hand) — hold it before enabling and keep clear of pinch
+        points. It auto-disengages if the connection drops. While ON, that arm's elbow buttons are disabled.
+      </div>
+    </div>
+
     <div class="skill soon">
-      <div class="skill-title">Freedrive · Force-mode · Align-to-plane <span class="badge">soon</span></div>
-      <div class="note">Next skills: freedrive (hand-guide the arm) and force-mode / align-to-plane (using the Nordbo F/T sensors).</div>
+      <div class="skill-title">Force-mode · Align-to-plane <span class="badge">soon</span></div>
+      <div class="note">Needs the Nordbo F/T sensors integrated first.</div>
     </div>
   </div>
 </div>
@@ -66,5 +98,12 @@
   input, select { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: 6px; font: inherit; }
   input[type='number'] { width: 84px; }
   .note { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; max-width: 720px; }
+  .note.danger { color: var(--err); }
   .soon { opacity: 0.7; }
+  .fd-btn { min-width: 150px; }
+  .fd-btn.on {
+    background: var(--err);
+    border-color: var(--err);
+    color: #fff;
+  }
 </style>

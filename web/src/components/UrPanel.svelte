@@ -4,6 +4,7 @@
   import { config } from '../lib/config.js';
   import { log } from '../lib/log.svelte.js';
   import { jointsState, startJoints, stopJoints } from '../lib/joints.svelte.js';
+  import { freedrive } from '../lib/skills.svelte.js';
 
   let status = $state({ container_running: false, driver_running: false });
   let busy = $state(false);
@@ -110,10 +111,11 @@
           </div>
           <div class="elbow-controls">
             <span class="muted">elbow:</span>
-            <button onclick={() => move(arm, -0.1)} disabled={!status.driver_running}>-0.1</button>
-            <button onclick={() => move(arm, -0.01)} disabled={!status.driver_running}>-0.01</button>
-            <button onclick={() => move(arm, 0.01)} disabled={!status.driver_running}>+0.01</button>
-            <button onclick={() => move(arm, 0.1)} disabled={!status.driver_running}>+0.1</button>
+            <button onclick={() => move(arm, -0.1)} disabled={!status.driver_running || freedrive[arm]}>-0.1</button>
+            <button onclick={() => move(arm, -0.01)} disabled={!status.driver_running || freedrive[arm]}>-0.01</button>
+            <button onclick={() => move(arm, 0.01)} disabled={!status.driver_running || freedrive[arm]}>+0.01</button>
+            <button onclick={() => move(arm, 0.1)} disabled={!status.driver_running || freedrive[arm]}>+0.1</button>
+            {#if freedrive[arm]}<span class="muted">freedrive on</span>{/if}
           </div>
         </div>
       {/each}

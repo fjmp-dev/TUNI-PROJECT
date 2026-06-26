@@ -225,6 +225,60 @@ class PayloadRequest(BaseModel):
     cog_z: float = Field(0.0, ge=-0.5, le=0.5)
 
 
+class FreedriveRequest(BaseModel):
+    """Enable/disable freedrive (hand-guide) on one arm."""
+    arm: Literal["left", "right"]
+    enable: bool
+
+
+def _run_freedrive(arm: str, enable: bool) -> dict:
+    """Toggle freedrive mode on one arm. Runs in a worker thread.
+
+    Enabling: switch the joint_trajectory_controller out for the
+    freedrive_mode_controller, then start a detached publisher that keeps the
+    controller's deadman fed (it auto-disengages if publishing stops). Disabling:
+    kill that publisher, send a final 'false', and switch the trajectory
+    controller back so normal moves work again.
+    """
+    try:
+        c = docker_client.containers.get(_ur_container_name())
+    except docker.errors.NotFound:
+        raise HTTPException(404, "UR driver container not found")
+    if c.status != "running":
+        raise HTTPException(400, f"{c.name} not running")
+
+    jtc = f"{arm}_joint_trajectory_controller"
+    fd = f"{arm}_freedrive_mode_controller"
+    topic = f"/{fd}/enable_freedrive_mode"
+    # Bracket trick so pkill doesn't match its own command line.
+    kill_pat = f"[{arm[0]}]{arm[1:]}_freedrive_mode_controller/enable"
+
+    def sh(cmd, detach=False):
+        full = f"source /opt/ros/humble/setup.bash && {cmd}"
+        r = c.exec_run(["bash", "-c", full], stdout=True, stderr=True, detach=detach)
+        if detach:
+            return 0, ""
+        out = (r.output or b"").decode("utf-8", "replace") if isinstance(r.output, bytes) else str(r.output or "")
+        return r.exit_code, out
+
+    if enable:
+        code, out = sh(f"timeout 10 ros2 control switch_controllers --deactivate {jtc} --activate {fd}")
+        if code != 0:
+            raise HTTPException(500, f"could not switch to freedrive: {out[:200]}")
+        # Keep the deadman fed at 10 Hz (detached).
+        sh(f"nohup ros2 topic pub -r 10 {topic} std_msgs/msg/Bool '{{data: true}}' "
+           f">/var/log/mir/freedrive_{arm}.log 2>&1 &", detach=True)
+        return {"status": "ok", "arm": arm, "freedrive": True}
+
+    # disable
+    sh(f"pkill -f '{kill_pat}'")
+    sh(f"timeout 3 ros2 topic pub -1 {topic} std_msgs/msg/Bool '{{data: false}}'")
+    code, out = sh(f"timeout 10 ros2 control switch_controllers --deactivate {fd} --activate {jtc}")
+    if code != 0:
+        raise HTTPException(500, f"freedrive off but could not restore trajectory controller: {out[:200]}")
+    return {"status": "ok", "arm": arm, "freedrive": False}
+
+
 def _run_set_payload(arm: str, mass: float, cx: float, cy: float, cz: float) -> dict:
     """Set the arm payload via the UR set_payload service. Runs in a worker thread
     (no event-loop block). No motion is commanded."""
@@ -330,6 +384,13 @@ async def ur_payload(body: PayloadRequest):
     return await asyncio.to_thread(
         _run_set_payload, body.arm, body.mass, body.cog_x, body.cog_y, body.cog_z
     )
+
+
+@app.post("/api/ur/freedrive")
+async def ur_freedrive(body: FreedriveRequest):
+    if docker_client is None:
+        raise HTTPException(503, "docker not available")
+    return await asyncio.to_thread(_run_freedrive, body.arm, body.enable)
 
 
 @app.get("/health")

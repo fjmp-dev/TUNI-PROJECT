@@ -37,4 +37,6 @@ export const api = {
     request('/api/ur/move', { method: 'POST', body: { arm, joint, delta } }),
   urPayload: (arm, mass, cog_x, cog_y, cog_z) =>
     request('/api/ur/payload', { method: 'POST', body: { arm, mass, cog_x, cog_y, cog_z } }),
+  urFreedrive: (arm, enable) =>
+    request('/api/ur/freedrive', { method: 'POST', body: { arm, enable } }),
 };
