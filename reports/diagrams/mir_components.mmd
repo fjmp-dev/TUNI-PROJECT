@@ -1,0 +1,31 @@
+flowchart TB
+    USER["Tu navegador<br/>tunisuite.local"]
+
+    subgraph KEVIN["Kevin (Jetson) - contenedores de la suite"]
+        UI["Web UI + API (mir_ui)<br/>login, panel, proxy"]
+        BRIDGE["Puente del MiR (mir_mir)<br/>+ vigilante nuevo"]
+        DRV["Driver de brazos<br/>(mir_ur_driver)"]
+        CAM["Camara (mir_camera)"]
+    end
+
+    subgraph HW["Hardware real"]
+        MIRHW["MiR200 movil"]
+        URHW["Brazos UR5e"]
+        CAMHW["Camara Orbbec"]
+    end
+
+    USER -- "abre la web" --> UI
+    UI -- "pregunta estado" --> MIRHW
+    UI --- BRIDGE
+    UI --- DRV
+    UI --- CAM
+    BRIDGE -- "datos en vivo" --> MIRHW
+    DRV -- "mueve" --> URHW
+    CAM -- "imagen" --> CAMHW
+
+    classDef ui fill:#eef3ff,stroke:#3a6ad9,stroke-width:2px;
+    classDef svc fill:#e7f6ec,stroke:#2e9e4f;
+    classDef hw fill:#fff4e0,stroke:#e8a300;
+    class USER,UI ui;
+    class BRIDGE,DRV,CAM svc;
+    class MIRHW,URHW,CAMHW hw;

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagnóstico del MiR — explicado fácil</title>
+<style>
+  :root { --ok:#2e9e4f; --warn:#e8a300; --bad:#d93a3a; --info:#0b6bcb; --ink:#1f2430; --muted:#5b6472; --line:#e3e7ee; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         color: var(--ink); max-width: 960px; margin: 0 auto; padding: 28px 20px 80px;
+         line-height: 1.6; background: #fafbfc; }
+  h1 { font-size: 1.9rem; margin: 0 0 4px; display:flex; align-items:center; gap:10px; }
+  h2 { font-size: 1.3rem; margin: 38px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .lead { background: #fff; border: 1px solid var(--line); border-left: 6px solid var(--ok);
+          border-radius: 10px; padding: 16px 20px; font-size: 1.08rem; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 14px; margin: 18px 0; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px 16px;
+          display:flex; flex-direction:column; gap:2px; }
+  .card .dot { display:inline-flex; }
+  .card b { display:block; margin:4px 0; }
+  .card small { color: var(--muted); }
+  .ok b{color:var(--ok)} .warn b{color:var(--warn)} .bad b{color:var(--bad)}
+  .card.ok .dot{color:var(--ok)} .card.warn .dot{color:var(--warn)} .card.bad .dot{color:var(--bad)}
+  .note { background:#fff7e6; border:1px solid #f0d79a; border-radius:8px; padding:12px 16px; margin:14px 0;
+          display:flex; gap:10px; align-items:flex-start; }
+  .note > .ico { flex:none; margin-top:2px; }
+  .note.plain > .ico { color: var(--info); }
+  .bad-note { background:#fdeaea; border:1px solid #f1b6b6; } .bad-note > .ico{ color:var(--bad); }
+  .ok-note { background:#eaf6ee; border:1px solid #b6dcc0; } .ok-note > .ico{ color:var(--ok); }
+  .note.plain { background:#eef4fb; border:1px solid #c3d8f0; }
+  .analogy { font-style: italic; color:#444; border-left:3px solid #cfd6e0; padding-left:12px; margin:10px 0;
+             display:flex; gap:8px; align-items:flex-start; } .analogy > .ico{ color:var(--muted); margin-top:3px; flex:none; }
+  table { border-collapse: collapse; width:100%; background:#fff; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  th,td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); font-size:0.96rem; }
+  th { background:#f3f5f9; }
+  td .st { display:inline-flex; align-items:center; gap:6px; }
+  .c-ok{color:var(--ok)} .c-bad{color:var(--bad)} .c-warn{color:var(--warn)} .c-muted{color:var(--muted)}
+  code { background:#eef1f6; padding:1px 6px; border-radius:5px; font-size:0.9em; }
+  .q { background:#eef3ff; border:1px solid #c2d3f5; border-radius:10px; padding:16px 20px;
+       display:flex; gap:10px; align-items:flex-start; } .q > .ico{ color:var(--info); flex:none; margin-top:2px; }
+  a { color: var(--info); }
+  footer { margin-top:40px; color:var(--muted); font-size:0.85rem; text-align:center; }
+  .ico { width:1.15em; height:1.15em; vertical-align:-0.18em; flex:none;
+         stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  h1 .ico { width:1.5rem; height:1.5rem; color:var(--info); }
+  /* numbered steps */
+  .steps { counter-reset:step; list-style:none; padding:0; margin:16px 0; }
+  .steps li { position:relative; padding:11px 14px 11px 46px; border:1px solid var(--line);
+              border-radius:8px; background:#fff; margin:9px 0; }
+  .steps li::before { counter-increment:step; content:counter(step); position:absolute; left:11px; top:11px;
+              width:24px; height:24px; border-radius:50%; background:var(--info); color:#fff;
+              display:flex; align-items:center; justify-content:center; font-size:.82rem; font-weight:700; }
+  /* horizontal data-flow strip */
+  .flow { display:flex; flex-wrap:wrap; align-items:stretch; gap:4px; margin:18px 0 8px; }
+  .flow .box { flex:1 1 120px; border:1px solid var(--line); border-radius:8px; background:#fff;
+               padding:9px 10px; text-align:center; }
+  .flow .box b { display:block; color:#0b3d66; font-size:.86rem; }
+  .flow .box small { color:var(--muted); font-size:.74rem; }
+  .flow .box.hl { background:#fff8e1; border-color:#f0c14b; }
+  .flow .arrow { align-self:center; color:#9aa6b2; font-weight:700; }
+  .flow-note { font-size:.82rem; color:var(--muted); margin:2px 0 0; }
+  pre.snippet { background:#1f2430; color:#e6edf3; border-radius:8px; padding:12px 14px; overflow:auto;
+                font-family:Consolas,monospace; font-size:.82rem; line-height:1.5; margin:12px 0; }
+  pre.snippet .c { color:#8b97ab; }
+  pre.snippet .k { color:#9cdcfe; }
+  kbd { background:#1f2430; color:#fff; border-radius:4px; padding:1px 6px; font-family:Consolas,monospace; font-size:.82em; }
+</style>
+</head>
+<body>
+
+<h1>
+  <svg class="ico" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="13" rx="2"/><path d="M12 7V4M9 4h6"/><circle cx="9" cy="13" r="1.2"/><circle cx="15" cy="13" r="1.2"/><path d="M2 12v3M22 12v3"/></svg>
+  Diagnóstico del MiR — explicado fácil
+</h1>
+<p class="sub">Robot <b>MiR_S455</b> (MiR200) · 29 de junio de 2026</p>
+
+<p class="lead">
+  <b>En una frase:</b> el robot está sano por dentro. El problema que lo hace
+  desconectarse es la <b>señal de WiFi, que le llega muy débil</b>. Además
+  encontramos y arreglamos un fallo en nuestro propio programa que empeoraba las cosas.
+</p>
+
+<h2>El veredicto de un vistazo</h2>
+<div class="cards">
+  <div class="card ok"><span class="dot"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg></span><b>Batería</b><small>85% (~11 horas). Sin problema.</small></div>
+  <div class="card ok"><span class="dot"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg></span><b>Sin errores</b><small>0 errores activos. Los miles de antes eran historia vieja.</small></div>
+  <div class="card ok"><span class="dot"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg></span><b>Se ubica bien</b><small>Sabe dónde está en el mapa.</small></div>
+  <div class="card bad"><span class="dot"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg></span><b>WiFi muy débil</b><small>−87 dBm. Esta es la causa de las desconexiones.</small></div>
+  <div class="card warn"><span class="dot"><svg class="ico" viewBox="0 0 24 24"><path d="M10.3 3.3 1.8 18a2 2 0 0 0 1.7 3h16.9a2 2 0 0 0 1.7-3L13.7 3.3a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg></span><b>Reloj atrasado</b><small>Cree que es 2016. Cosmético, pero ensucia los registros.</small></div>
+  <div class="card ok"><span class="dot"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg></span><b>Cerebro/software</b><small>Versión 2.13.3.2. Viejo pero estable.</small></div>
+</div>
+
+<h2>Diagrama 1 — La red (quién habla con quién)</h2>
+<p>Así está conectado todo. El robot habla con la suite (en el equipo <b>Kevin</b>)
+a través del router <b>Teltonika</b>. El problema está en la línea roja punteada:</p>
+
+<div class="note plain">
+  <svg class="ico" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16v-5M12 16V8M17 16v-3"/></svg>
+  <div><b>Diagrama separado (Mermaid):</b> <code>reports/diagrams/mir_network.mmd</code><br>
+  Abrir/editar en el editor online (Mermaid Chart / Live):
+  <a href="https://mermaid.live/edit#pako:eNqFk91u2kAQhV9l5NwEFTvBlN9WkYpMW5rQCwONqlJVg3ccVll7k_U6UKK8e2cNcaE39ZU9Pt_Zc8bys5doQd4QvFTpTbJGY2EeLXPg6-t4_mPpTXJLJicLFzCbTGGsZIFL7-deMh_fsCTWJWtgTsrqXN7j-5W5uIoX819RpxeCD61BGLS6_aAVtGryevyNyWt6kjmcfyFb6LxRcQqhKKWlE67XqcHpJGZwKuPw8rICjtzbtepDPJ2xbGRwpwtYxB2CN5BghuZv-Ci6deFJgBD-xthTtzDYVsp6F-D7vitcN-cBLL0EV4rgnArrbhpLj8dXrl7dswJdoCMyYPJWfpTQgU-fd9zV7_dAjLIqw3TxHaLxaHIzhII4NbFpwKZc_cjUWeTaKVAlmO-QF6mtQTAkGhWxdRXrrnsCH0sJpIAXCI8lCQSZP8lCcvaK2R-yhxKFRRFRCndaC0ilUsMz6qVdSpqFNfqehmchDehtenj0N1LY9TB82L77x2CFr3wqCAlrXgza2Mb_8jmV3Ey9ZqC0lXZrjz46k2PELajJe266rVfpT95yRZfoZMYLarqPfDiJ33lN8DIyGUrB_8ezZ9eUVX-KoBRLZb0XFmBp9ex3nvDcmpJ4Uj4ItBRJvDOYHcYvfwD1DgMn"
+     target="_blank">mir_network →</a></div>
+</div>
+
+<div class="note ok-note">
+  <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg>
+  <div><b>Regla de oro:</b> el robot y la suite (Kevin) tienen que estar en la
+  <b>misma red: la del Teltonika (192.168.1.x)</b>. Si el robot se conecta a la
+  red <b>dd-wrt</b> (192.168.12.x), Kevin no lo alcanza y la suite deja de verlo.</div>
+</div>
+
+<h2>¿Por qué se desconecta? (el WiFi, sin tecnicismos)</h2>
+<p>El robot se conecta por WiFi en la banda de <b>5 GHz</b>, que es muy rápida
+pero de <b>corto alcance</b>. La señal le llega tan floja (−87 dBm) que apenas se
+sostiene, y cuando se mueve o hay un obstáculo, <b>se cae de la red</b>.</p>
+
+<p class="analogy">
+  <svg class="ico" viewBox="0 0 24 24"><path d="M4 11a9 9 0 0 1 16 0"/><path d="M7 14a5 5 0 0 1 10 0"/><circle cx="12" cy="17" r="1.5"/></svg>
+  Es como hablar por walkie-talkie estando casi fuera de cobertura: a ratos se
+  entiende, pero en cuanto te alejas un poco, se corta.
+</p>
+
+<div class="note bad-note">
+  <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+  <div><b>Lo vimos en directo:</b> durante el diagnóstico el robot se cayó de la red
+  por completo y tardó más de un minuto sin volver. No fue casualidad — es justo
+  el problema.</div>
+</div>
+
+<div class="note plain">
+  <svg class="ico" viewBox="0 0 24 24"><path d="M9 18h6M10 22h4"/><path d="M15.1 14c.2-.8.6-1.5 1.3-2A6 6 0 1 0 6 9c0 1.5.8 2.8 1.6 4 .7.5 1.1 1.2 1.3 2"/></svg>
+  <div><b>La solución:</b> pasar el robot a la banda de <b>2.4 GHz</b> (más lenta,
+  pero <b>llega mucho más lejos</b>). Misma red Teltonika, solo otra "puerta".
+  <br><b>Pendiente:</b> el robot solo ve la red de 5 GHz y no tenemos la
+  contraseña del WiFi → hay que <b>pedírselo a Wael</b> (ver abajo).</div>
+</div>
+
+<h2>¿Qué arreglamos hoy? (el "vigilante" del puente)</h2>
+<p>La suite tiene un <b>puente</b> que traduce los datos del robot para mostrarlos
+en la web. Ese puente tiene un <b>vigilante</b> que debe reiniciarlo si se traba.</p>
+
+<table>
+  <tr><th>Antes</th><th>Ahora</th></tr>
+  <tr>
+    <td>El vigilante <b>reiniciaba el puente sano cada 90 s</b> por error (miraba
+    la señal equivocada). Y cada reinicio de más <b>ayudaba a colgar</b> al robot.</td>
+    <td>El vigilante ahora mira los <b>datos reales</b> del robot y le da tiempo a
+    arrancar. Solo reinicia cuando de verdad está trabado.</td>
+  </tr>
+</table>
+
+<div class="note ok-note">
+  <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg>
+  <div><b>Probado en vivo:</b> el puente ahora arranca bien, se mantiene estable sin
+  reinicios falsos, y cuando lo "congelamos" a propósito, el vigilante lo detectó y
+  lo levantó solo.</div>
+</div>
+
+<h2>Diagrama 2 — Los componentes de la suite (qué hace cada pieza)</h2>
+<p>Estas son las piezas del sistema y cómo encajan. Tú solo abres el navegador;
+todo lo demás trabaja por debajo:</p>
+
+<div class="note plain">
+  <svg class="ico" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16v-5M12 16V8M17 16v-3"/></svg>
+  <div><b>Diagrama separado (Mermaid):</b> <code>reports/diagrams/mir_components.mmd</code><br>
+  Abrir/editar en el editor online (Mermaid Chart / Live):
+  <a href="https://mermaid.live/edit#pako:eNptU2FP2zAQ_Sun8IWKdKtaxkY3IVFajQ51Q4XCh2VCl-SSWkvsyrFTGOK_72qnHemIVDW-e-_d3TvnOUhUSsEQgqxQ62SJ2sDtKJLAz-JmMv8ZBbcWJNaUY6r0l1i_PzNWisoKQ-8KlWARBb8i6RmVjXONqyVcTe6m35l7RbWQcPiNTKVkB7qQKGlIEktRBSlBgeCknAg0z2LK1HuK-QWO4Px6Coel0A9WdFz9QuVChrBCSQX_afX41KKP5tPx1wlLXFvialymgJmYexH-eZUjqEUuCtwgpKVatTTG8zsWGGtRk970GWv8oypH9L3oh9QlOy3axfmMaRdYokZfL8GSNP5DkUz_c-vynkmXqNM1agJNjadb0dl07hA8Q7_Xg1LVog1Y-PzI9cinD7TflMs3bf3QcUzJWw1tFg7dLkQBxtrtZk1xFHDojFfRYKYesdKUW2kQqDJ8MxqUa_UVsNssoxVib1tn7s-fPdbrp2h4FpK8pfoNddbwuJJXR9sed2mW9GlRYk6yyTsjtsMmBVbVmDKwAjJRFMMDomyQZWFltPpNw4MBnmB62hy7a5Ga5bC_evy8R6_qZMv_mJ1QsuP36ZSOs334ct2gsyw7pt4OTZ9w0Ou9Rrt1hOyRFa2wdylkB8LNmFy_lXYmhRsrQjcvV-R8EELAF7FEkfLH_hyYJZXus08pQ1uY4IUBaI26eZIJx422xBG74j3QWCBf1LIJv_wFIBJFZw"
+     target="_blank">mir_components →</a></div>
+</div>
+
+<h2>Cómo movemos un brazo (de tu clic al motor)</h2>
+<p>Cuando mueves un joint desde la web, <b>no enviamos voltajes ni comandos de motor</b>.
+Enviamos una pequeña <b>trayectoria</b> (dónde está ahora → dónde debe terminar, en X segundos)
+y el controlador del robot se encarga del resto. Este es el viaje del dato:</p>
+
+<div class="flow">
+  <div class="box"><b>Navegador</b><small>tu clic en el panel UR</small></div>
+  <div class="arrow">&rarr;</div>
+  <div class="box hl"><b>mir_ui</b><small>FastAPI: valida + autoriza</small></div>
+  <div class="arrow">&rarr;</div>
+  <div class="box"><b>joint_mover</b><small>arma la trayectoria</small></div>
+  <div class="arrow">&rarr;</div>
+  <div class="box"><b>controller</b><small>ros2_control interpola</small></div>
+  <div class="arrow">&rarr;</div>
+  <div class="box"><b>driver UR</b><small>RTDE por Ethernet</small></div>
+  <div class="arrow">&rarr;</div>
+  <div class="box"><b>UR5e</b><small>mueve el motor</small></div>
+</div>
+<p class="flow-note">En paralelo, <code>joint_server</code> publica la <b>posición actual</b> de los joints
+(suscrito a <code>/joint_states</code>) — el visor 3D y <code>joint_mover</code> la leen de ahí.</p>
+
+<ol class="steps">
+  <li>El <b>navegador</b> manda <kbd>POST /api/ur/move</kbd> con el cuerpo
+      <code>{ arm, joint, delta }</code> (p. ej. <code>right</code>, <code>elbow</code>,
+      <code>+0.05&nbsp;rad</code>) y tu <b>token</b> de sesión.</li>
+  <li><b>mir_ui (FastAPI)</b> valida con Pydantic: brazo y joint de una lista cerrada, y
+      <b>|delta|&nbsp;&le;&nbsp;0.5&nbsp;rad</b>. Aquí está el <b>candado de seguridad</b>: un comando
+      enorme o mal formado <b>nunca</b> llega al brazo.</li>
+  <li>mir_ui hace un <code>docker&nbsp;exec</code> dentro del contenedor del driver y lanza
+      <code>joint_mover.py right elbow 0.05</code> — en un <b>hilo aparte</b>, para no congelar la
+      API ni el streaming de joints durante el movimiento.</li>
+  <li><b>joint_mover</b> pide la <b>posición actual</b> de los 6 joints a <code>joint_server</code>
+      (HTTP <code>:9091</code>). Si no la consigue, <b>aborta</b>: nunca parte de un &laquo;0.0
+      fantasma&raquo; que provocaría un salto brusco.</li>
+  <li>Calcula el <b>objetivo</b>: copia las 6 posiciones actuales y suma el delta al joint elegido.
+      Le pone una <b>duración</b> (&asymp;&nbsp;3&nbsp;s para 0.1&nbsp;rad) para que el movimiento
+      sea suave.</li>
+  <li>Arma un <b>goal de <code>FollowJointTrajectory</code></b> (acción ROS&nbsp;2): una mini-trayectoria
+      de <b>2 puntos</b> — punto&nbsp;0 = posición actual (t&nbsp;=&nbsp;0), punto&nbsp;1 = objetivo
+      (t&nbsp;=&nbsp;duración) — y la envía a
+      <code>/{arm}_joint_trajectory_controller</code>.</li>
+  <li>El <b>joint_trajectory_controller</b> (ros2_control) acepta el goal e <b>interpola</b> entre los
+      dos puntos, mandando comandos de posición al ritmo de control.</li>
+  <li>El <b>driver de UR</b> traduce esos comandos a <b>RTDE</b> (Real-Time Data Exchange, por Ethernet,
+      puertos 30001-30004) hacia el controlador del UR5e, que <b>mueve el motor físico</b>.</li>
+  <li>De vuelta: el controlador responde <b>SUCCEEDED</b> &rarr; <code>joint_mover</code> imprime
+      &laquo;OK&raquo; &rarr; la API responde <code>{ status: "ok" }</code> &rarr; la web te lo confirma,
+      y la nueva posición aparece en <code>/joint_states</code> (visor 3D + lectura en vivo).</li>
+</ol>
+
+<p>Lo que enviamos al brazo, en concreto, es esto — una trayectoria en <b>espacio de joints</b>,
+no comandos de motor:</p>
+<pre class="snippet"><span class="c"># goal: control_msgs/action/FollowJointTrajectory</span>
+joint_names: [right_shoulder_pan_joint, ... , right_wrist_3_joint]
+points:
+  - <span class="k">positions</span>: [ ...posición ACTUAL de los 6 joints... ]   <span class="c"># t = 0 s</span>
+  - <span class="k">positions</span>: [ ...igual, pero elbow += 0.05 rad ... ]   <span class="c"># t = 3 s</span></pre>
+
+<div class="note ok-note">
+  <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg>
+  <div><b>Si algo falla</b> (goal rechazado, controlador no disponible o timeout — típico si el programa
+  externo del UR se detuvo): la suite llama a <code>resend_robot_program</code>, reactiva el controlador
+  y <b>reintenta una vez</b> sola, en automático.</div>
+</div>
+
+<h2>Qué falta y la pregunta para Wael</h2>
+<table>
+  <tr><th>Tarea</th><th>Estado</th></tr>
+  <tr><td>Arreglar el "vigilante" del puente</td><td><span class="st c-ok"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg>Hecho y probado</span></td></tr>
+  <tr><td>Pasar el WiFi del MiR a 2.4 GHz</td><td><span class="st c-bad"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></svg>Bloqueado (falta red/contraseña)</span></td></tr>
+  <tr><td>Corregir el reloj del robot</td><td><span class="st c-muted"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Pendiente</span></td></tr>
+  <tr><td>Mostrar la telemetría del MiR en la web</td><td><span class="st c-muted"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Pendiente (necesita red estable)</span></td></tr>
+</table>
+
+<div class="q">
+  <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.1 9.2a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4M12 17h.01"/></svg>
+  <div><b>Pregunta para Wael:</b> ¿se puede <b>activar la red WiFi de 2.4 GHz</b> del
+  Teltonika (<code>RUT_D572</code>) y/o darnos la <b>contraseña</b> del WiFi? Así
+  conectamos el MiR a 2.4 GHz, que llega mucho mejor, y se acaban las desconexiones.</div>
+</div>
+
+<footer>
+  Versión técnica completa en <code>docs/mir_diagnostico.md</code> ·
+  MiR_S455 · MiR Suite
+</footer>
+
+</body>
+</html>

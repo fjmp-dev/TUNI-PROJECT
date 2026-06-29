@@ -1,0 +1,21 @@
+flowchart TD
+    NET["Internet / SIM Elisa"]
+    TEL["Router Teltonika<br/>RUT_D572 - 192.168.1.1"]
+    KEV["Kevin (Jetson)<br/>la suite - 192.168.1.75"]
+    MIR["MiR200<br/>192.168.1.13"]
+    ARMS["Brazos UR5e + camara"]
+    DDW["Red dd-wrt<br/>192.168.12.x"]
+
+    NET --- TEL
+    TEL -- "cable (estable)" --> KEV
+    KEV --- ARMS
+    TEL -. "WiFi 5 GHz - -87 dBm<br/>MUY DEBIL: se cae" .-> MIR
+    KEV -. "no se alcanzan (otra red)" .-x DDW
+    DDW -. "aqui el MiR queda invisible" .- MIR
+
+    classDef good fill:#e7f6ec,stroke:#2e9e4f,stroke-width:2px;
+    classDef bad fill:#fdeaea,stroke:#d93a3a,stroke-width:2px;
+    classDef neutral fill:#eef1f6,stroke:#8a93a3;
+    class KEV,TEL,ARMS good;
+    class MIR bad;
+    class DDW,NET neutral;

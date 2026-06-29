@@ -82,6 +82,20 @@
   ul.tight { margin: 6px 0; padding-left: 20px; }
   ul.tight li { margin: 3px 0; }
   footer { color: var(--muted); font-size: 13px; margin-top: 50px; text-align: center; }
+
+  .oneliner { background:#f0fbf4; border-left:3px solid var(--ok); padding:8px 14px; border-radius:0 8px 8px 0; margin:0 0 14px; font-size:14.5px; }
+  .maplegend { display:flex; flex-wrap:wrap; gap:16px; justify-content:center; margin:14px 0 2px; font-size:12.5px; }
+  .maplegend span { display:inline-flex; align-items:center; gap:7px; color:var(--muted); }
+  .maplegend i { width:26px; height:0; border-top:3px solid; display:inline-block; }
+  .svgmap { overflow:auto; text-align:center; padding:4px 0; }
+  .svgmap svg { max-width:100%; height:auto; }
+  .faq .q { font-weight:700; color:var(--tampere); margin:16px 0 3px; }
+  .faq .q:first-child { margin-top:2px; }
+  .faq .a { margin:0 0 6px; }
+
+  .codeblock { background:#f3f1f8; border:1px solid var(--line); border-radius:8px; padding:12px 14px; font-family:var(--mono); font-size:12.5px; line-height:1.6; overflow:auto; margin:10px 0; color:#2e0a52; white-space:pre; }
+  .codeblock .c { color:#8a7fb0; }
+  .deep { border-left:3px solid var(--tampere); }
 </style>
 </head>
 <body>
@@ -107,13 +121,92 @@
     </ul>
     <p>Dos "idiomas" conviven aquí: <strong>ROS 2</strong> (cómo hablan los robots y los nodos entre sí dentro de Kevin)
     y <strong>HTTP/WebSocket</strong> (cómo le llega al navegador). Buena parte del trabajo es <em>traducir de uno al otro</em>.</p>
+    <div class="note"><strong>Modelo mental:</strong> piensa en <code>mir_ui</code> como la <em>recepción</em> de un taller. Tú (el navegador) hablas solo con la recepción; ella no arregla nada con sus propias manos: le pasa cada orden al contenedor correcto y te trae el resultado. Los robots (el hardware) están en el taller — la recepción nunca los toca directo, los <strong>coordina</strong>.</div>
     <div class="note"><strong>Truco clave:</strong> todos los contenedores usan <code>network_mode: host</code> — comparten la red de Kevin.
     Por eso un contenedor puede hablarle a otro como si fuera <code>localhost</code>, y ROS 2 (que usa DDS) se descubre entre contenedores sin configurar nada.
     Se hizo así porque el kernel de la Jetson no soporta las redes "bridge" normales de Docker.</div>
   </div>
 
-  <h2>2. La cámara Orbbec</h2>
+      <div class="card deep">
+    <p style="margin-top:0"><strong>¿Qué es realmente un contenedor?</strong> Imagina una <em>caja sellada</em> con su propio sistema operativo y sus programas ya instalados dentro (su Ubuntu, su ROS&nbsp;2, sus librerías de Python). Corre igual en cualquier máquina y <strong>no ensucia a Kevin</strong>: si borras el contenedor, no queda nada instalado en el host. Pero no está <em>totalmente</em> aislado — a propósito le abrimos dos puertas:</p>
+    <ul class="tight">
+      <li><strong>La red</strong> (<code>network_mode: host</code>): comparte la red de Kevin, así puede usar <code>localhost</code> y descubrir ROS&nbsp;2 (lo vemos en la sección 2).</li>
+      <li><strong>Volúmenes</strong>: "montamos" archivos de Kevin <em>dentro</em> del contenedor. Por eso podemos editar <code>main.py</code> o un script en Kevin y el cambio se ve al instante, <strong>sin reconstruir</strong> la imagen.</li>
+    </ul>
+    <p>Dos cosas que suelen confundir:</p>
+    <ul class="tight">
+      <li>Un contenedor puede correr <strong>varios procesos a la vez</strong> (no es "1 contenedor = 1 programa"). El del driver levanta 3 al arrancar y un cuarto bajo demanda.</li>
+      <li>Cada contenedor nace de un <strong>Dockerfile</strong> (la receta: de qué imagen base parte y qué instala) y se orquesta con <strong><code>docker-compose.yml</code></strong> (qué contenedores hay, qué montan, qué puertos).</li>
+    </ul>
+    <p style="margin-bottom:6px"><strong>Qué hay dentro de cada uno:</strong></p>
+    <table>
+      <tr><th>Contenedor</th><th>Qué procesos corren dentro</th><th>Qué monta de Kevin</th><th>Abre / usa</th></tr>
+      <tr><td><code>mir_ui</code></td><td>El backend FastAPI (servidor <code>uvicorn</code>) que sirve la web y la API REST.</td><td><code>main.py</code> (editable) + el <strong>socket de Docker</strong> (para mandar órdenes a los demás).</td><td>Puerto <code>:80</code></td></tr>
+      <tr><td><code>mir_camera</code></td><td>El nodo ROS&nbsp;2 de la cámara Orbbec.</td><td><code>/dev</code> (acceso al USB) + el workspace de Eemil.</td><td>Publica topics ROS&nbsp;2</td></tr>
+      <tr><td><code>mir_ur_driver</code></td><td><strong>Al arrancar:</strong> <code>rosbridge</code> (:9090), <code>joint_server</code> (:9091) y <code>action_bridge</code>. <strong>Bajo demanda:</strong> el driver UR (<code>duo_ur</code>).</td><td>Los scripts + el workspace de Eemil + <code>/dev</code>.</td><td><code>:9090</code>, <code>:9091</code>, RTDE</td></tr>
+      <tr><td><code>mir_mir</code></td><td>El puente <code>mir_raw.py</code> + su nodo de <em>liveness</em> + el <em>watchdog</em>.</td><td>Los scripts del puente + el workspace.</td><td>WebSocket al MiR</td></tr>
+    </table>
+    <p class="pill">Fíjate que <strong>solo <code>mir_ui</code> monta el socket de Docker</strong>: esa es la "llave maestra" que le deja ejecutar comandos dentro de los otros contenedores (sección 2).</p>
+  </div>
+
+<h2>2. Cómo se comunican los contenedores entre sí</h2>
+  <p class="lead">El corazón de la suite: los 4 contenedores no están aislados — se coordinan por <strong>tres mecanismos distintos</strong>.</p>
+  <div class="card">
+    <p style="margin:0 0 6px"><strong>Mapa de la suite.</strong> Cada flecha es un canal real; el <strong>color</strong> dice de qué tipo es. Esta sola imagen resume todo lo demás:</p>
+    <div class="svgmap"><svg id="g" width="100%" xmlns="http://www.w3.org/2000/svg" class="flowchart" style="max-width: 813.984375px;" viewBox="0 0 813.984375 957" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#g{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;fill:#000000;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#g .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#g .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#g .error-icon{fill:#552222;}#g .error-text{fill:#552222;stroke:#552222;}#g .edge-thickness-normal{stroke-width:1px;}#g .edge-thickness-thick{stroke-width:3.5px;}#g .edge-pattern-solid{stroke-dasharray:0;}#g .edge-thickness-invisible{stroke-width:0;fill:none;}#g .edge-pattern-dashed{stroke-dasharray:3;}#g .edge-pattern-dotted{stroke-dasharray:2;}#g .marker{fill:#666;stroke:#666;}#g .marker.cross{stroke:#666;}#g svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;}#g p{margin:0;}#g .label{font-family:"trebuchet ms",verdana,arial,sans-serif;color:#000000;}#g .cluster-label text{fill:#333;}#g .cluster-label span{color:#333;}#g .cluster-label span p{background-color:transparent;}#g .label text,#g span{fill:#000000;color:#000000;}#g .node rect,#g .node circle,#g .node ellipse,#g .node polygon,#g .node path{fill:#eee;stroke:#999;stroke-width:1px;}#g .rough-node .label text,#g .node .label text,#g .image-shape .label,#g .icon-shape .label{text-anchor:middle;}#g .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#g .rough-node .label,#g .node .label,#g .image-shape .label,#g .icon-shape .label{text-align:center;}#g .node.clickable{cursor:pointer;}#g .root .anchor path{fill:#666!important;stroke-width:0;stroke:#666;}#g .arrowheadPath{fill:#333333;}#g .edgePath .path{stroke:#666;stroke-width:1px;}#g .flowchart-link{stroke:#666;fill:none;}#g .edgeLabel{background-color:white;text-align:center;}#g .edgeLabel p{background-color:white;}#g .edgeLabel rect{opacity:0.5;background-color:white;fill:white;}#g .labelBkg{background-color:rgba(255, 255, 255, 0.5);}#g .cluster rect{fill:hsl(0, 0%, 98.9215686275%);stroke:#707070;stroke-width:1px;}#g .cluster text{fill:#333;}#g .cluster span{color:#333;}#g div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:12px;background:hsl(-160, 0%, 93.3333333333%);border:1px solid #707070;border-radius:2px;pointer-events:none;z-index:100;}#g .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#000000;}#g rect.text{fill:none;stroke-width:0;}#g .icon-shape,#g .image-shape{background-color:white;text-align:center;}#g .icon-shape p,#g .image-shape p{background-color:white;padding:2px;}#g .icon-shape .label rect,#g .image-shape .label rect{opacity:0.5;background-color:white;fill:white;}#g .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#g .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#g .node .neo-node{stroke:#999;}#g [data-look="neo"].node rect,#g [data-look="neo"].cluster rect,#g [data-look="neo"].node polygon{stroke:url(#g-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#g [data-look="neo"].swimlane.cluster rect{filter:none;}#g [data-look="neo"].node path{stroke:url(#g-gradient);stroke-width:1px;}#g [data-look="neo"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#g [data-look="neo"].node .neo-line path{stroke:#999;filter:none;}#g [data-look="neo"].node circle{stroke:url(#g-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#g [data-look="neo"].node circle .state-start{fill:#000000;}#g [data-look="neo"].icon-shape .icon{fill:url(#g-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#g [data-look="neo"].icon-shape .icon-neo path{stroke:url(#g-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#g :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}#g .ui&gt;*{fill:rgb(253, 240, 224)!important;stroke:rgb(185, 118, 15)!important;stroke-width:1.5px!important;color:rgb(91, 58, 6)!important;}#g .ui span{fill:rgb(253, 240, 224)!important;stroke:rgb(185, 118, 15)!important;stroke-width:1.5px!important;color:rgb(91, 58, 6)!important;}#g .ui tspan{fill:rgb(91, 58, 6)!important;}#g .svc&gt;*{fill:rgb(243, 239, 250)!important;stroke:rgb(78, 0, 142)!important;stroke-width:1.5px!important;color:rgb(46, 10, 82)!important;}#g .svc span{fill:rgb(243, 239, 250)!important;stroke:rgb(78, 0, 142)!important;stroke-width:1.5px!important;color:rgb(46, 10, 82)!important;}#g .svc tspan{fill:rgb(46, 10, 82)!important;}#g .hw&gt;*{fill:rgb(230, 242, 236)!important;stroke:rgb(31, 138, 76)!important;stroke-width:1.5px!important;color:rgb(13, 61, 36)!important;}#g .hw span{fill:rgb(230, 242, 236)!important;stroke:rgb(31, 138, 76)!important;stroke-width:1.5px!important;color:rgb(13, 61, 36)!important;}#g .hw tspan{fill:rgb(13, 61, 36)!important;}#g .user&gt;*{fill:rgb(238, 243, 248)!important;stroke:rgb(11, 107, 203)!important;stroke-width:1.5px!important;color:rgb(11, 61, 102)!important;}#g .user span{fill:rgb(238, 243, 248)!important;stroke:rgb(11, 107, 203)!important;stroke-width:1.5px!important;color:rgb(11, 61, 102)!important;}#g .user tspan{fill:rgb(11, 61, 102)!important;}</style><g><marker id="g_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="g_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="g_flowchart-v2-pointEnd-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="11.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="10.5" markerHeight="14" orient="auto"><path d="M 0 0 L 11.5 7 L 0 14 z" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></path></marker><marker id="g_flowchart-v2-pointStart-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="1" refY="7" markerUnits="userSpaceOnUse" markerWidth="11.5" markerHeight="14" orient="auto"><polygon points="0,7 11.5,14 11.5,0" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></polygon></marker><marker id="g_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="g_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="g_flowchart-v2-circleEnd-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refY="5" refX="12.25" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></circle></marker><marker id="g_flowchart-v2-circleStart-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-2" refY="5" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></circle></marker><marker id="g_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="g_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="g_flowchart-v2-crossEnd-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="17.7" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5;"></path></marker><marker id="g_flowchart-v2-crossStart-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="-3.5" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5; stroke-dasharray: 1, 0;"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path d="M364.19,86L356.965,92.583C349.74,99.167,335.29,112.333,329.514,124.852C323.737,137.371,326.634,149.243,328.083,155.178L329.532,161.114" id="g-L_USER_UI_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style="stroke:#b9760f;stroke-width:2.5px;fill:none;;;stroke:#b9760f;stroke-width:2.5px;fill:none" data-edge="true" data-et="edge" data-id="L_USER_UI_0" data-points="W3sieCI6MzY0LjE5MDM4NjE0NjQ5NjgsInkiOjg2fSx7IngiOjMyMC44Mzk4NDM3NSwieSI6MTI1LjV9LHsieCI6MzMwLjQ4MDEyMDE3NTI4MzMsInkiOjE2NX1d" data-look="classic" marker-end="url(#g_flowchart-v2-pointEnd__b9760f)"></path><path d="M449.794,86L457.019,92.583C464.244,99.167,478.694,112.333,484.471,124.852C490.247,137.371,487.35,149.243,485.901,155.178L484.453,161.114" id="g-L_USER_RB_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style="stroke:#b9760f;stroke-width:2.5px;fill:none;;;stroke:#b9760f;stroke-width:2.5px;fill:none" data-edge="true" data-et="edge" data-id="L_USER_RB_0" data-points="W3sieCI6NDQ5Ljc5Mzk4ODg1MzUwMzIsInkiOjg2fSx7IngiOjQ5My4xNDQ1MzEyNSwieSI6MTI1LjV9LHsieCI6NDgzLjUwNDI1NDgyNDcxNjcsInkiOjE2NX1d" data-look="classic" marker-end="url(#g_flowchart-v2-pointEnd__b9760f)"></path><path d="M153.051,792L147.718,798.583C142.385,805.167,131.72,818.333,133.164,831.053C134.608,843.772,148.16,856.043,154.937,862.179L161.713,868.315" id="g-L_UI_MIR_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style="stroke:#0e7490;stroke-width:2.5px;fill:none;;;stroke:#0e7490;stroke-width:2.5px;fill:none" data-edge="true" data-et="edge" data-id="L_UI_MIR_0" data-points="W3sieCI6MTUzLjA1MDUyNjczNTEyNzQ4LCJ5Ijo3OTJ9LHsieCI6MTIxLjA1NDY4NzUsInkiOjgzMS41fSx7IngiOjE2NC42Nzg0NDM0NzEzMzc1NywieSI6ODcxfV0=" data-look="classic" marker-end="url(#g_flowchart-v2-pointEnd__0e7490)"></path><path d="M307.039,792L304.94,798.583C302.841,805.167,298.643,818.333,289.768,831.053C280.892,843.772,267.34,856.043,260.563,862.179L253.787,868.315" id="g-L_BR_MIR_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style="stroke:#0e7490;stroke-width:2.5px;fill:none;;;stroke:#0e7490;stroke-width:2.5px;fill:none" data-edge="true" data-et="edge" data-id="L_BR_MIR_0" data-points="W3sieCI6MzA3LjAzOTA4NDYzMTcyODAzLCJ5Ijo3OTJ9LHsieCI6Mjk0LjQ0NTMxMjUsInkiOjgzMS41fSx7IngiOjI1MC44MjE1NTY1Mjg2NjI0MywieSI6ODcxfV0=" data-look="classic" marker-end="url(#g_flowchart-v2-pointEnd__0e7490)"></path><path d="M483.921,792L485.536,798.583C487.151,805.167,490.382,818.333,491.998,830.833C493.613,843.333,493.613,855.167,493.613,861.083L493.613,867" id="g-L_URD_ARMS_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style="stroke:#0e7490;stroke-width:2.5px;fill:none;;;stroke:#0e7490;stroke-width:2.5px;fill:none" data-edge="true" data-et="edge" data-id="L_URD_ARMS_0" data-points="W3sieCI6NDgzLjkyMDU1MjYyOTI0OTMsInkiOjc5Mn0seyJ4Ijo0OTMuNjEzMjgxMjUsInkiOjgzMS41fSx7IngiOjQ5My42MTMyODEyNSwieSI6ODcxfV0=" data-look="classic" marker-end="url(#g_flowchart-v2-pointEnd__0e7490)"></path><path d="M677.09,792L682.762,798.583C688.433,805.167,699.777,818.333,705.449,830.833C711.121,843.333,711.121,855.167,711.121,861.083L711.121,867" id="g-L_CAMC_ORB_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style="stroke:#0e7490;stroke-width:2.5px;fill:none;;;stroke:#0e7490;stroke-width:2.5px;fill:none" data-edge="true" data-et="edge" data-id="L_CAMC_ORB_0" data-points="W3sieCI6Njc3LjA4OTY3MjIyOTEwNzcsInkiOjc5Mn0seyJ4Ijo3MTEuMTIxMDkzNzUsInkiOjgzMS41fSx7IngiOjcxMS4xMjEwOTM3NSwieSI6ODcxfV0=" data-look="classic" marker-end="url(#g_flowchart-v2-pointEnd__0e7490)"></path></g><g class="edgeLabels"><g class="edgeLabel" transform="translate(327.48797, 119.44238)"><g class="label" data-id="L_USER_UI_0" transform="translate(-89.296875, -12)"><foreignObject width="178.59375" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "><p>HTTP REST :80 (+token)</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(486.4964, 119.44238)"><g class="label" data-id="L_USER_RB_0" transform="translate(-63.0078125, -12)"><foreignObject width="126.015625" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "><p>WebSocket :9090</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(124.026, 834.19043)"><g class="label" data-id="L_UI_MIR_0" transform="translate(-67.2734375, -12)"><foreignObject width="134.546875" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "><p>HTTP REST (LAN)</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(287.99971, 837.3363)"><g class="label" data-id="L_BR_MIR_0" transform="translate(-86.1171875, -12)"><foreignObject width="172.234375" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "><p>WebSocket :9090 (LAN)</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(493.61328125, 831.5)"><g class="label" data-id="L_URD_ARMS_0" transform="translate(-67.125, -12)"><foreignObject width="134.25" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "><p>RTDE / TCP (LAN)</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(711.12109375, 831.5)"><g class="label" data-id="L_CAMC_ORB_0" transform="translate(-16.453125, -12)"><foreignObject width="32.90625" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "><p>USB</p></span></div></foreignObject></g></g></g><g class="nodes"><g class="root" transform="translate(0, 157)"><g class="clusters"><g class="cluster " id="g-KEVIN" data-look="classic"><rect style="" x="8" y="8" width="797.984375" height="627"></rect><g class="cluster-label " transform="translate(150.4140625, 8)"><foreignObject width="513.15625" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5;"><span class="nodeLabel "><p>Kevin - Jetson AGX Orin (todos los contenedores comparten la red host)</p></span></div></foreignObject></g></g></g><g class="edgePaths"><path d="M309.711,126L309.711,134.667C309.711,143.333,309.711,160.667,309.711,177.333C309.711,194,309.711,210,309.711,218L309.711,226" id="g-L_BR_UI_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style="stroke:#1f8a4c;stroke-width:2.5px;fill:none;;;stroke:#1f8a4c;stroke-width:2.5px;fill:none" data-edge="true" data-et="edge" data-id="L_BR_UI_0" data-points="W3sieCI6MzA5LjcxMDkzNzUsInkiOjEyNn0seyJ4IjozMDkuNzEwOTM3NSwieSI6MTc4fSx7IngiOjMwOS43MTA5Mzc1LCJ5IjoyMzB9XQ==" data-look="classic" marker-end="url(#g_flowchart-v2-pointEnd__1f8a4c)"></path><path d="M252.076,308L236.313,318.667C220.549,329.333,189.023,350.667,191.227,371.668C193.431,392.669,229.367,413.337,247.335,423.671L265.302,434.006" id="g-L_UI_JS_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style="stroke:#4e008e;stroke-width:2.5px;fill:none;;;stroke:#4e008e;stroke-width:2.5px;fill:none" data-edge="true" data-et="edge" data-id="L_UI_JS_0" data-points="W3sieCI6MjUyLjA3NjE5MDgzNzM3ODY1LCJ5IjozMDh9LHsieCI6MTU3LjQ5NjA5Mzc1LCJ5IjozNzJ9LHsieCI6MjY4Ljc2OTYxMjkxMzc2MzA3LCJ5Ijo0MzZ9XQ==" data-look="classic" marker-end="url(#g_flowchart-v2-pointEnd__4e008e)"></path><path d="M346.546,308L356.62,318.667C366.694,329.333,386.843,350.667,396.918,371.333C406.992,392,406.992,412,406.992,422L406.992,432" id="g-L_UI_URD_0" class=" edge-thickness-normal edge-pattern-dotted edge-thickness-normal edge-pattern-solid flowchart-link" style="stroke:#4e008e;stroke-width:2.5px;fill:none;;;stroke:#4e008e;stroke-width:2.5px;fill:none" data-edge="true" data-et="edge" data-id="L_UI_URD_0" data-points="W3sieCI6MzQ2LjU0NTU4NTU1ODI1MjQsInkiOjMwOH0seyJ4Ijo0MDYuOTkyMTg3NSwieSI6MzcyfSx7IngiOjQwNi45OTIxODc1LCJ5Ijo0MzZ9XQ==" data-look="classic" marker-end="url(#g_flowchart-v2-pointEnd__4e008e)"></path><path d="M670.098,296L670.098,308.667C670.098,321.333,670.098,346.667,651.126,369.681C632.154,392.695,594.21,413.39,575.238,423.737L556.266,434.085" id="g-L_CAMC_RB_0" class=" edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style="stroke:#1f8a4c;stroke-width:2.5px;fill:none;;;stroke:#1f8a4c;stroke-width:2.5px;fill:none" data-edge="true" data-et="edge" data-id="L_CAMC_RB_0" data-points="W3sieCI6NjcwLjA5NzY1NjI1LCJ5IjoyOTZ9LHsieCI6NjcwLjA5NzY1NjI1LCJ5IjozNzJ9LHsieCI6NTUyLjc1NDQ1MDY3NTA4NzEsInkiOjQzNn1d" data-look="classic" marker-end="url(#g_flowchart-v2-pointEnd__1f8a4c)"></path></g><g class="edgeLabels"><g class="edgeLabel" transform="translate(309.7109375, 178)"><g class="label" data-id="L_BR_UI_0" transform="translate(-71.5703125, -12)"><foreignObject width="143.140625" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "><p>DDS (topics ROS 2)</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(157.49609375, 372)"><g class="label" data-id="L_UI_JS_0" transform="translate(-74.5625, -12)"><foreignObject width="149.125" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "><p>HTTP localhost:9091</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(406.9921875, 372)"><g class="label" data-id="L_UI_URD_0" transform="translate(-100, -24)"><foreignObject width="200" height="48"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="edgeLabel "><p>docker exec (Docker socket)</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(670.09765625, 372)"><g class="label" data-id="L_CAMC_RB_0" transform="translate(-67.5703125, -12)"><foreignObject width="135.140625" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel "><p>DDS (topic ROS 2)</p></span></div></foreignObject></g></g></g><g class="nodes"><g class="root" transform="translate(32.5, 428)"><g class="clusters"><g class="cluster " id="g-DRV" data-look="classic"><rect style="" x="8" y="8" width="732.984375" height="159"></rect><g class="cluster-label " transform="translate(327.3671875, 8)"><foreignObject width="94.25" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5;"><span class="nodeLabel "><p>mir_ur_driver</p></span></div></foreignObject></g></g></g><g class="edgePaths"></g><g class="edgeLabels"></g><g class="nodes"><g class="node default ui " id="g-flowchart-RB-2" data-look="classic" transform="translate(126.09375, 87.5)"><rect class="basic label-container" style="fill:#fdf0e0 !important;stroke:#b9760f !important;stroke-width:1.5px !important" x="-85.59375" y="-27" width="171.1875" height="54"></rect><g class="label" style="color:#5b3a06 !important" transform="translate(-55.59375, -12)"><rect></rect><foreignObject width="111.1875" height="24"><div style="color: rgb(91, 58, 6) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#5b3a06 !important" class="nodeLabel "><p>rosbridge :9090</p></span></div></foreignObject></g></g><g class="node default ui " id="g-flowchart-JS-3" data-look="classic" transform="translate(350.28125, 87.5)"><rect class="basic label-container" style="fill:#fdf0e0 !important;stroke:#b9760f !important;stroke-width:1.5px !important" x="-93.59375" y="-27" width="187.1875" height="54"></rect><g class="label" style="color:#5b3a06 !important" transform="translate(-63.59375, -12)"><rect></rect><foreignObject width="127.1875" height="24"><div style="color: rgb(91, 58, 6) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#5b3a06 !important" class="nodeLabel "><p>joint_server :9091</p></span></div></foreignObject></g></g><g class="node default ui " id="g-flowchart-URD-4" data-look="classic" transform="translate(598.6796875, 87.5)"><rect class="basic label-container" style="fill:#fdf0e0 !important;stroke:#b9760f !important;stroke-width:1.5px !important" x="-109.8046875" y="-27" width="219.609375" height="54"></rect><g class="label" style="color:#5b3a06 !important" transform="translate(-79.8046875, -12)"><rect></rect><foreignObject width="159.609375" height="24"><div style="color: rgb(91, 58, 6) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#5b3a06 !important" class="nodeLabel "><p>UR driver + controllers</p></span></div></foreignObject></g></g></g></g><g class="node default ui " id="g-flowchart-UI-1" data-look="classic" transform="translate(309.7109375, 269)"><rect class="basic label-container" style="fill:#fdf0e0 !important;stroke:#b9760f !important;stroke-width:1.5px !important" x="-114.71875" y="-39" width="229.4375" height="78"></rect><g class="label" style="color:#5b3a06 !important" transform="translate(-84.71875, -24)"><rect></rect><foreignObject width="169.4375" height="48"><div style="color: rgb(91, 58, 6) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#5b3a06 !important" class="nodeLabel "><p>mir_ui<br>backend FastAPI + web</p></span></div></foreignObject></g></g><g class="node default ui " id="g-flowchart-CAMC-5" data-look="classic" transform="translate(670.09765625, 269)"><rect class="basic label-container" style="fill:#fdf0e0 !important;stroke:#b9760f !important;stroke-width:1.5px !important" x="-72.234375" y="-27" width="144.46875" height="54"></rect><g class="label" style="color:#5b3a06 !important" transform="translate(-42.234375, -12)"><rect></rect><foreignObject width="84.46875" height="24"><div style="color: rgb(91, 58, 6) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#5b3a06 !important" class="nodeLabel "><p>mir_camera</p></span></div></foreignObject></g></g><g class="node default ui " id="g-flowchart-BR-6" data-look="classic" transform="translate(309.7109375, 87)"><rect class="basic label-container" style="fill:#fdf0e0 !important;stroke:#b9760f !important;stroke-width:1.5px !important" x="-104.71875" y="-39" width="209.4375" height="78"></rect><g class="label" style="color:#5b3a06 !important" transform="translate(-74.71875, -24)"><rect></rect><foreignObject width="149.4375" height="48"><div style="color: rgb(91, 58, 6) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#5b3a06 !important" class="nodeLabel "><p>mir_mir<br>(puente, on-demand)</p></span></div></foreignObject></g></g></g></g><g class="node default user " id="g-flowchart-USER-0" data-look="classic" transform="translate(406.9921875, 47)"><rect class="basic label-container" style="fill:#eef3f8 !important;stroke:#0b6bcb !important;stroke-width:1.5px !important" x="-81.578125" y="-39" width="163.15625" height="78"></rect><g class="label" style="color:#0b3d66 !important" transform="translate(-51.578125, -24)"><rect></rect><foreignObject width="103.15625" height="48"><div style="color: rgb(11, 61, 102) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#0b3d66 !important" class="nodeLabel "><p>Tu navegador<br>(tu dispositivo)</p></span></div></foreignObject></g></g><g class="node default hw " id="g-flowchart-MIR-7" data-look="classic" transform="translate(207.75, 910)"><rect class="basic label-container" style="fill:#e6f2ec !important;stroke:#1f8a4c !important;stroke-width:1.5px !important" x="-94.5" y="-39" width="189" height="78"></rect><g class="label" style="color:#0d3d24 !important" transform="translate(-64.5, -24)"><rect></rect><foreignObject width="129" height="48"><div style="color: rgb(13, 61, 36) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#0d3d24 !important" class="nodeLabel "><p>MiR200<br>LAN 192.168.1.13</p></span></div></foreignObject></g></g><g class="node default hw " id="g-flowchart-ARMS-8" data-look="classic" transform="translate(493.61328125, 910)"><rect class="basic label-container" style="fill:#e6f2ec !important;stroke:#1f8a4c !important;stroke-width:1.5px !important" x="-85.59375" y="-39" width="171.1875" height="78"></rect><g class="label" style="color:#0d3d24 !important" transform="translate(-55.59375, -24)"><rect></rect><foreignObject width="111.1875" height="48"><div style="color: rgb(13, 61, 36) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#0d3d24 !important" class="nodeLabel "><p>Brazos UR5e<br>LAN .102 / .103</p></span></div></foreignObject></g></g><g class="node default hw " id="g-flowchart-ORB-9" data-look="classic" transform="translate(711.12109375, 910)"><rect class="basic label-container" style="fill:#e6f2ec !important;stroke:#1f8a4c !important;stroke-width:1.5px !important" x="-86.9140625" y="-39" width="173.828125" height="78"></rect><g class="label" style="color:#0d3d24 !important" transform="translate(-56.9140625, -24)"><rect></rect><foreignObject width="113.828125" height="48"><div style="color: rgb(13, 61, 36) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#0d3d24 !important" class="nodeLabel "><p>Camara Orbbec<br>USB</p></span></div></foreignObject></g></g></g></g><marker id="g_flowchart-v2-pointEnd__1f8a4c" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;" stroke="#1f8a4c" fill="#1f8a4c"></path></marker><marker id="g_flowchart-v2-pointEnd__4e008e" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;" stroke="#4e008e" fill="#4e008e"></path></marker><marker id="g_flowchart-v2-pointEnd__b9760f" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;" stroke="#b9760f" fill="#b9760f"></path></marker><marker id="g_flowchart-v2-pointEnd__0e7490" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;" stroke="#0e7490" fill="#0e7490"></path></marker></g><defs><filter id="g-drop-shadow" height="130%" width="130%"><feDropShadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></feDropShadow></filter></defs><defs><filter id="g-drop-shadow-small" height="150%" width="150%"><feDropShadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></feDropShadow></filter></defs><linearGradient id="g-gradient" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="hsl(0, 0%, 83.3333333333%)" stop-opacity="1"></stop><stop offset="100%" stop-color="hsl(0, 0%, 88.9215686275%)" stop-opacity="1"></stop></linearGradient></svg></div>
+    <div class="maplegend">
+      <span><i style="border-color:#b9760f"></i> Navegador &harr; suite (HTTP / WebSocket)</span>
+      <span><i style="border-color:#4e008e"></i> entre contenedores (localhost + Docker socket)</span>
+      <span><i style="border-color:#1f8a4c"></i> ROS 2 / DDS entre contenedores</span>
+      <span><i style="border-color:#0e7490"></i> suite &harr; hardware (RTDE, WebSocket, USB)</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <p>Como todos comparten la red de Kevin (<code>network_mode: host</code>), entre ellos no hay "internet" ni IPs propias de Docker: se hablan como si fueran <strong>el mismo equipo</strong>. Sobre esa base conviven tres canales:</p>
+    <ul class="tight">
+      <li><span class="tag host">1 · red host</span> <strong>localhost + puertos.</strong> Un contenedor llega a un servicio de otro por <code>localhost:&lt;puerto&gt;</code>. Ej.: <code>mir_ui</code> lee los joints pegándole por HTTP a <code>localhost:9091</code> (el <code>joint_server</code> que vive <em>dentro</em> de <code>mir_ur_driver</code>).</li>
+      <li><span class="tag robot">2 · DDS (ROS 2)</span> <strong>descubrimiento automático.</strong> Los nodos ROS 2 de distintos contenedores se encuentran solos porque comparten la red host y el mismo <code>ROS_DOMAIN_ID=75</code>. Ej.: la cámara publica un topic en <code>mir_camera</code> y <code>rosbridge</code> (en <code>mir_ur_driver</code>) lo recibe <strong>sin configurar nada</strong>.</li>
+      <li><span class="tag web">3 · Docker socket</span> <strong>la llave maestra.</strong> <code>mir_ui</code> tiene montado <code>/var/run/docker.sock</code>, así que puede <strong>ejecutar comandos dentro de los otros contenedores</strong> (<code>docker exec</code>). <code>mir_ui</code> no habla ROS 2 por sí mismo: cuando necesita mover un brazo, <em>entra</em> al contenedor del driver y corre ahí el comando ROS 2.</li>
+    </ul>
+    <div class="note"><strong>Idea central:</strong> <code>mir_ui</code> es el cerebro, pero no toca el hardware ni habla ROS directamente. <strong>Orquesta</strong> a los demás contenedores: lee sus datos por HTTP/DDS y les da órdenes por el socket de Docker.</div>
+  </div>
+
+  <div class="card">
+    <p><strong>El caso clave — <code>mir_ui</code> &harr; <code>mir_ur_driver</code> (dos planos):</strong> el backend habla con el driver de los brazos de <em>dos</em> formas según lo que necesite:</p>
+    <div class="flow">
+      <div class="node accent"><div class="n-t">mir_ui</div><div class="n-d">el backend</div><div class="n-tag"><span class="tag host">contenedor</span></div></div>
+      <div class="arrow"><div class="lbl">LEER joints<br>HTTP :9091</div><div class="line">&rarr;</div></div>
+      <div class="node"><div class="n-t">joint_server</div><div class="n-d">dentro del driver</div><div class="n-tag"><span class="tag host">HTTP</span></div></div>
+      <div class="arrow"><div class="lbl">MANDAR órdenes<br>docker exec</div><div class="line">&rarr;</div></div>
+      <div class="node"><div class="n-t">ROS 2 en el driver</div><div class="n-d">move / payload / freedrive / start</div><div class="n-tag"><span class="tag host">Docker socket</span></div></div>
+    </div>
+    <ul class="tight">
+      <li><strong>Para LEER</strong> (posiciones de los joints): HTTP a <code>localhost:9091</code>. Rápido y sin abrir procesos.</li>
+      <li><strong>Para MANDAR</strong> (mover, payload, freedrive, arrancar/parar el driver): <code>docker exec</code> por el socket de Docker, corriendo el comando ROS 2 <em>dentro</em> del driver.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <p><strong>Matriz: quién habla con quién, por qué canal y qué viaja.</strong></p>
+    <table>
+      <tr><th>Origen</th><th>Destino</th><th>Mecanismo</th><th>Qué viaja</th></tr>
+      <tr><td>Navegador</td><td><code>mir_ui</code></td><td>HTTP / REST <code>:80</code> (+ token)</td><td>Peticiones y comandos (JSON)</td></tr>
+      <tr><td>Navegador</td><td><code>rosbridge</code> (en driver)</td><td>WebSocket <code>:9090</code></td><td>Imagen de la cámara (base64)</td></tr>
+      <tr><td><code>mir_ui</code></td><td><code>joint_server</code> (en driver)</td><td>HTTP <code>localhost:9091</code></td><td>Lectura de joints (JSON)</td></tr>
+      <tr><td><code>mir_ui</code></td><td><code>mir_ur_driver</code></td><td>Docker socket (<code>docker exec</code>)</td><td>Órdenes: mover / payload / freedrive / start</td></tr>
+      <tr><td><code>mir_ui</code></td><td>MiR200 (LAN)</td><td>HTTP / REST <code>:80</code></td><td>Telemetría (status JSON)</td></tr>
+      <tr><td><code>mir_camera</code></td><td><code>rosbridge</code> (en driver)</td><td>DDS (topic ROS 2)</td><td>Imagen comprimida (JPEG)</td></tr>
+      <tr><td><code>mir_mir</code></td><td>MiR200 (LAN)</td><td>WebSocket <code>:9090</code> (roslibpy)</td><td>Topics internos del MiR (ROS 1)</td></tr>
+      <tr><td><code>mir_mir</code></td><td>otros contenedores</td><td>DDS (topics ROS 2)</td><td>Telemetría del MiR republicada</td></tr>
+      <tr><td><code>mir_ur_driver</code></td><td>Brazos UR5e (LAN)</td><td>RTDE (TCP)</td><td>Comandos y estado de los brazos</td></tr>
+    </table>
+    <p class="pill"><strong>Lo único con IP fija</strong> entre piezas es el <em>hardware</em> de la LAN (MiR <code>.13</code>, brazos <code>.102/.103</code>). Entre contenedores todo es <code>localhost</code> + descubrimiento DDS: nada depende de IPs internas.</p>
+  </div>
+
+  <h2>3. La cámara Orbbec</h2>
   <p class="lead">Imagen en vivo: del sensor USB al <code>&lt;img&gt;</code> del navegador.</p>
+  <p class="oneliner"><strong>En una frase:</strong> la cámara comprime a <strong>JPEG</strong>, <code>rosbridge</code> lo pasa a texto (<strong>base64</strong>) y el navegador lo mete tal cual en un <code>&lt;img&gt;</code>.</p>
   <div class="flow">
     <div class="node accent"><div class="n-t">Cámara Orbbec</div><div class="n-d">Gemini 335Lg, 1280×800 @ 30fps</div><div class="n-tag"><span class="tag robot">hardware</span></div></div>
     <div class="arrow"><div class="lbl">USB 3.2</div><div class="line">&rarr;</div></div>
@@ -135,8 +228,9 @@
     <p class="pill"><strong>Conversiones:</strong> imagen cruda → JPEG (en la cámara) → base64 (en rosbridge). <strong>Transporte:</strong> USB → DDS (ROS 2) → WebSocket.</p>
   </div>
 
-  <h2>3. Brazos UR5e — leer las posiciones (joints)</h2>
+  <h2>4. Brazos UR5e — leer las posiciones (joints)</h2>
   <p class="lead">Los 12 ángulos de las articulaciones, en vivo, a la página.</p>
+  <p class="oneliner"><strong>En una frase:</strong> el driver publica los ángulos a ~500&nbsp;Hz; un <strong>mini-servidor HTTP</strong> guarda el último valor y el navegador lo pide cada 250&nbsp;ms.</p>
   <div class="flow">
     <div class="node accent"><div class="n-t">UR5e .102 / .103</div><div class="n-d">brazos físicos</div><div class="n-tag"><span class="tag robot">hardware</span></div></div>
     <div class="arrow"><div class="lbl">RTDE<br>(~500 Hz)</div><div class="line">&rarr;</div></div>
@@ -158,12 +252,44 @@
     <p class="pill"><strong>Por qué un servidor HTTP y no <code>docker exec</code> por petición:</strong> abrir un proceso por cada lectura tardaba ~200 ms; el servidor persistente responde en ~5–10 ms.</p>
   </div>
 
-  <h2>4. Brazos UR5e — mover un joint</h2>
+    <div class="card deep">
+    <p style="margin-top:0"><strong>El servidor que "tiene a la mano el último JSON" — qué es exactamente.</strong></p>
+    <p><strong>El problema:</strong> el driver publica <code>/joint_states</code> ~500 veces por segundo. Un navegador no habla ROS, y abrir una conexión ROS nueva por cada lectura tardaba ~200&nbsp;ms (lentísimo, y son muchas lecturas).</p>
+    <p><strong>La solución (<code>joint_server.py</code>):</strong> un programita de Python que corre <em>dentro</em> del contenedor del driver y hace <strong>dos cosas a la vez</strong>, en dos hilos:</p>
+    <ul class="tight">
+      <li><strong>Como nodo ROS&nbsp;2</strong>, se suscribe <strong>una sola vez</strong> a <code>/joint_states</code>. Cada vez que llega un mensaje, lo guarda en una <strong>variable en memoria</strong>, pisando el anterior (solo le importa el más nuevo — usa QoS <code>depth=1</code>).</li>
+      <li><strong>Como servidor HTTP en <code>:9091</code></strong>, cuando alguien pide <code>GET /joints</code>, devuelve esa variable convertida a JSON — <strong>al instante (~5&nbsp;ms)</strong>, sin tocar ROS en ese momento.</li>
+    </ul>
+    <div class="note"><strong>La analogía:</strong> es un <strong>pizarrón</strong>. El robot escribe sin parar su posición actual en el pizarrón (la suscripción), y quien la necesita solo <em>lee</em> el pizarrón (el <code>GET</code>), en vez de interrumpir al robot cada vez. Así se unen dos mundos con ritmos muy distintos: ROS <em>empuja</em> a 500&nbsp;Hz; el navegador <em>jala</em> cuando quiere (cada 250&nbsp;ms).</div>
+    <p>El JSON que entrega ya viene "masticado": separa los joints en <code>left</code>/<code>right</code> e incluye <code>age_s</code> (qué tan viejo es el último dato) y un flag <code>stale</code> (true si pasaron &gt;2&nbsp;s sin datos), para que la UI sepa si lo que muestra es fresco o no:</p>
+    <div class="codeblock">GET http://localhost:9091/joints  -&gt;
+{
+  <span class="c">// los 6 ángulos de cada brazo, en radianes</span>
+  "left":  { "shoulder_pan": -0.01, "elbow": -1.57, ... },
+  "right": { "shoulder_pan":  0.02, "elbow": -1.20, ... },
+  "age_s": 0.012,    <span class="c">// el dato tiene 12 ms de antiguedad</span>
+  "stale": false     <span class="c">// true si pasaran &gt; 2 s sin datos</span>
+}</div>
+    <p class="pill"><strong>Quién consume esto:</strong> el backend (<code>/api/ur/joints</code>) le hace de proxy con un cache de 100&nbsp;ms; y en la web hay un <strong>único poller</strong> que alimenta a la vez el panel de números y el visor 3D. Nadie abre conexiones de más.</p>
+  </div>
+
+  <div class="card deep">
+    <p style="margin-top:0"><strong>Cómo habla el driver con el brazo físico (RTDE), a fondo.</strong></p>
+    <ul class="tight">
+      <li><strong>RTDE</strong> (<em>Real-Time Data Exchange</em>) es el canal de tiempo real de Universal Robots, por TCP. El brazo expone varios puertos (<code>30001-30004</code>); el driver mantiene una conexión <strong>siempre abierta</strong> y, a ~500&nbsp;Hz, <strong>lee</strong> el estado (posiciones, velocidades, fuerzas) y <strong>escribe</strong> comandos.</li>
+      <li>Dentro del driver corre <strong><code>ros2_control</code></strong>, en dos capas: un <em>hardware interface</em> (el único que realmente habla RTDE) y, encima, los <em>controllers</em> — como <code>joint_trajectory_controller</code> (para mover) o <code>freedrive_mode_controller</code> (para guiar a mano) — que traducen metas de alto nivel a comandos.</li>
+      <li>Del lado del robot debe estar corriendo un programa (el <strong>URCap "External Control"</strong>) que le <strong>cede el control</strong> en tiempo real al driver. Si ese programa se detiene, los comandos se rechazan — por eso en la recuperación se llama <code>resend_robot_program</code>.</li>
+    </ul>
+    <p class="pill">Por eso el driver <strong>no</strong> arranca solo: necesita el brazo encendido y con su programa de control corriendo para poder "enganchar" el RTDE.</p>
+  </div>
+
+<h2>5. Brazos UR5e — mover un joint</h2>
   <p class="lead">Del clic en un botón al movimiento real del codo.</p>
+  <p class="oneliner"><strong>En una frase:</strong> el navegador manda 3 datos (<code>arm, joint, delta</code>); el backend los valida y los convierte en una <strong>trayectoria de 2 puntos</strong> que el controlador ejecuta por RTDE.</p>
   <div class="flow">
     <div class="node accent"><div class="n-t">Botón en la UI</div><div class="n-d">±0.1 / ±0.01 rad</div><div class="n-tag"><span class="tag web">UI</span></div></div>
     <div class="arrow"><div class="lbl">POST JSON<br>{arm,joint,delta}</div><div class="line">&rarr;</div></div>
-    <div class="node"><div class="n-t">/api/ur/move</div><div class="n-d">valida (Pydantic)</div><div class="n-tag"><span class="tag host">REST</span></div></div>
+    <div class="node"><div class="n-t">/api/ur/move</div><div class="n-d">en <code>mir_ui</code> · valida (Pydantic)</div><div class="n-tag"><span class="tag host">REST</span></div></div>
     <div class="arrow"><div class="lbl">en un hilo<br>docker exec</div><div class="line">&rarr;</div></div>
     <div class="node"><div class="n-t">joint_mover.py</div><div class="n-d">arma una trayectoria</div><div class="n-tag"><span class="tag host">ROS 2 action</span></div></div>
     <div class="arrow"><div class="lbl">action goal</div><div class="line">&rarr;</div></div>
@@ -171,6 +297,20 @@
     <div class="arrow"><div class="lbl">RTDE</div><div class="line">&rarr;</div></div>
     <div class="node accent"><div class="n-t">El brazo se mueve</div><div class="n-tag"><span class="tag robot">hardware</span></div></div>
   </div>
+  <div class="card deep">
+    <p style="margin-top:0"><strong>¿A dónde se manda el POST, y quién lo trabaja?</strong> El navegador hace <code>POST http://tunisuite.local/api/ur/move</code> (puerto 80) con el cuerpo <code>{ "arm":"right", "joint":"elbow", "delta":0.05 }</code>. Esa URL es del <strong>mismo servidor que te dio la página: el contenedor <code>mir_ui</code></strong>. El POST llega ahí — <em>no</em> al brazo ni al driver. Adentro pasa por capas, y conviene separar <em>quién lo analiza</em> de <em>quién hace el trabajo</em>:</p>
+    <table>
+      <tr><th>Capa</th><th>Dónde vive</th><th>Qué hace</th></tr>
+      <tr><td>FastAPI (<code>uvicorn</code>)</td><td><code>mir_ui</code></td><td>Recibe el POST y lo enruta a la función <code>ur_move</code></td></tr>
+      <tr><td>Middleware de auth</td><td><code>mir_ui</code></td><td>Revisa tu <strong>token</strong>; sin él &rarr; 401, ni se procesa</td></tr>
+      <tr><td>Pydantic (<code>MoveRequest</code>)</td><td><code>mir_ui</code></td><td><strong>Analiza / valida</strong> el JSON: brazo y joint válidos, <code>|delta| &le; 0.5 rad</code>. Si algo falla, <strong>lo rechaza aquí</strong> — el robot ni se entera</td></tr>
+      <tr><td><code>docker exec</code> (socket Docker)</td><td><code>mir_ui</code> &rarr; <code>mir_ur_driver</code></td><td><code>mir_ui</code> <strong>no mueve el brazo</strong>: entra al contenedor del driver y lanza <code>joint_mover.py</code></td></tr>
+      <tr><td><code>joint_mover.py</code></td><td><code>mir_ur_driver</code></td><td><strong>Hace el trabajo</strong>: lee la posición actual (del joint_server), arma la trayectoria y manda el <em>action goal</em></td></tr>
+      <tr><td><code>joint_trajectory_controller</code></td><td><code>mir_ur_driver</code></td><td>Ejecuta la trayectoria &rarr; <strong>RTDE</strong> &rarr; el brazo se mueve</td></tr>
+    </table>
+    <div class="note"><strong>La idea clave:</strong> <code>mir_ui</code> es <strong>el que recibe y valida</strong> (el "portero"); pero <strong>el que realmente trabaja con el brazo es <code>joint_mover.py</code>, dentro del contenedor del driver</strong>. <code>mir_ui</code> no habla ROS — <strong>delega</strong> entrando al otro contenedor por el socket de Docker.</div>
+  </div>
+
   <div class="card">
     <ul class="tight">
       <li>La página manda un <code>POST /api/ur/move</code> con <code>{arm, joint, delta}</code> (qué brazo, qué articulación, cuánto en radianes).</li>
@@ -182,8 +322,19 @@
     <div class="warnbox"><strong>Seguridad:</strong> los brazos están montados <em>viendo hacia la espalda</em> del MiR, así que las direcciones +/− pueden ser contrarias a lo esperado. Por eso hay límites en el delta y solo se mueve el codo en pruebas.</div>
   </div>
 
-  <h2>5. Brazos UR5e — payload (smart skill)</h2>
+    <div class="card deep">
+    <p style="margin-top:0"><strong>Qué hace el controlador con esa trayectoria.</strong> El <code>joint_trajectory_controller</code> es un <em>action server</em>: recibe la meta (2 puntos — dónde está → dónde termina, en N segundos) y la <strong>interpola</strong>, generando muchos puntos intermedios que manda al brazo por RTDE al ritmo de control. No es un salto: es un movimiento <strong>suave</strong>, punto a punto.</p>
+    <ul class="tight">
+      <li><strong>Por qué 2 puntos y una duración:</strong> el primer punto (la posición actual) evita un tirón al arrancar; la duración (&asymp;&nbsp;3&nbsp;s para 0.1&nbsp;rad) fija la <em>velocidad</em> del movimiento.</li>
+      <li><strong>Cómo se sabe que terminó:</strong> la acción de ROS&nbsp;2 devuelve un resultado (<code>SUCCEEDED</code>); ahí el backend responde "ok" al navegador.</li>
+      <li><strong>Si falla</strong> (goal rechazado / controlador no disponible / timeout — típico si el programa externo del UR se cayó): el backend llama <code>resend_robot_program</code>, reactiva el controlador y <strong>reintenta una vez</strong>, en automático.</li>
+    </ul>
+    <p class="pill"><strong>Resumen del viaje del dato:</strong> 3 números del navegador (JSON) → trayectoria de 2 puntos (ROS&nbsp;2 action) → cientos de puntos interpolados (controller) → comandos a ~500&nbsp;Hz (RTDE) → el motor.</p>
+  </div>
+
+<h2>6. Brazos UR5e — payload (smart skill)</h2>
   <p class="lead">Decirle al brazo cuánto pesa su herramienta. No lo mueve.</p>
+  <p class="oneliner"><strong>En una frase:</strong> se le informa al brazo la masa y el centro de gravedad con un <strong>servicio ROS 2</strong>; <strong>no hay movimiento</strong>.</p>
   <div class="flow">
     <div class="node accent"><div class="n-t">Panel Smart Skills</div><div class="n-d">masa + CoG</div><div class="n-tag"><span class="tag web">UI</span></div></div>
     <div class="arrow"><div class="lbl">POST JSON</div><div class="line">&rarr;</div></div>
@@ -198,8 +349,9 @@
     <p class="pill"><strong>CoG</strong> = centro de gravedad: dónde está concentrado el peso de la herramienta, medido en metros desde la brida de la muñeca.</p>
   </div>
 
-  <h2>6. MiR200 — telemetría por REST</h2>
+  <h2>7. MiR200 — telemetría por REST</h2>
   <p class="lead">Batería, posición y errores del robot móvil. Funciona con el robot en Pause.</p>
+  <p class="oneliner"><strong>En una frase:</strong> el MiR tiene su propia <strong>API web</strong>; el backend la consulta y guarda el último valor 20&nbsp;s por si el MiR no contesta.</p>
   <div class="flow">
     <div class="node accent"><div class="n-t">MiR200 .13</div><div class="n-d">API REST en el puerto 80</div><div class="n-tag"><span class="tag robot">hardware</span></div></div>
     <div class="arrow"><div class="lbl">HTTP GET</div><div class="line">&larr;</div></div>
@@ -216,8 +368,9 @@
     <div class="warnbox"><strong>Importante:</strong> el MiR solo es estable en <strong>Pause</strong>. En Play/Running su red se colapsa (errores de seguridad 9000), así que la telemetría solo es fiable con el robot pausado.</div>
   </div>
 
-  <h2>7. MiR200 — el puente ROS1 → ROS2</h2>
+  <h2>8. MiR200 — el puente ROS1 → ROS2</h2>
   <p class="lead">Para traer los topics internos del MiR (mapa, scan, odometría) a nuestro ROS 2.</p>
+  <p class="oneliner"><strong>En una frase:</strong> el MiR habla <strong>ROS 1</strong>; un puente se conecta por WebSocket, <strong>descubre</strong> sus topics y los <strong>republica</strong> en nuestro ROS 2.</p>
   <div class="flow">
     <div class="node accent"><div class="n-t">MiR rosbridge</div><div class="n-d"><code>ws://192.168.1.13:9090</code> (ROS1)</div><div class="n-tag"><span class="tag robot">hardware</span></div></div>
     <div class="arrow"><div class="lbl">WebSocket<br>(roslibpy)</div><div class="line">&rarr;</div></div>
@@ -237,20 +390,73 @@
     <p class="pill">Un <strong>watchdog</strong> reinicia el puente si se queda "vivo pero sin datos" (el rosbridge del MiR se cuelga seguido). Hoy el puente está apagado: solo se necesita con el MiR activo.</p>
   </div>
 
-  <h2>8. El visor 3D</h2>
+  <h2>9. El visor 3D</h2>
   <p class="lead">Reusa los mismos datos de joints, sin conexión nueva.</p>
+  <p class="oneliner"><strong>En una frase:</strong> no abre ninguna conexión propia: <strong>reusa</strong> el poller de joints y dibuja los brazos con cilindros y esferas.</p>
   <div class="card">
-    <p>El visor <strong>no abre ninguna conexión propia</strong>: lee del mismo poller de <code>/api/ur/joints</code> (paso 3). Con esos 12 ángulos y la <strong>cadena cinemática</strong> del robot (<code>ur5e_chain.json</code>, sacada del modelo URDF), dibuja cada brazo con <strong>primitivos</strong> (cilindros para los eslabones, esferas para las articulaciones) usando Three.js, y rota cada articulación según su ángulo en vivo.</p>
+    <p>El visor <strong>no abre ninguna conexión propia</strong>: lee del mismo poller de <code>/api/ur/joints</code> (paso 4). Con esos 12 ángulos y la <strong>cadena cinemática</strong> del robot (<code>ur5e_chain.json</code>, sacada del modelo URDF), dibuja cada brazo con <strong>primitivos</strong> (cilindros para los eslabones, esferas para las articulaciones) usando Three.js, y rota cada articulación según su ángulo en vivo.</p>
     <div class="note">Se usan primitivos y no las mallas realistas <code>.dae</code> porque esas, aunque cargan, no se renderizan en el navegador (un problema del archivo). El modelo usa la orientación del URDF; recuerda que el montaje físico real va al revés.</div>
   </div>
 
-  <h2>9. Glosario rápido</h2>
+    <h2>10. Ciclo de vida: qué arranca y en qué orden</h2>
+  <p class="lead">No todo está prendido siempre. Saber qué depende de qué evita el 90% de los "no funciona".</p>
+  <p class="oneliner"><strong>En una frase:</strong> <code>mir_ui</code> y <code>mir_camera</code> están siempre arriba; el <strong>driver de los brazos lo enciendes tú desde la web</strong>; y el puente del MiR solo se prende cuando se necesita.</p>
+  <div class="card">
+    <table>
+      <tr><th>Pieza</th><th>¿Arranca sola?</th><th>Depende de…</th><th>Para qué sirve</th></tr>
+      <tr><td><code>mir_ui</code> (web + API)</td><td>Sí, al encender Kevin</td><td>—</td><td>Servir la página y orquestar todo</td></tr>
+      <tr><td><code>mir_camera</code></td><td>Sí, al encender Kevin</td><td>cámara USB conectada</td><td>Publicar la imagen en ROS 2</td></tr>
+      <tr><td><code>mir_ur_driver</code> (contenedor)</td><td>Sí, al encender Kevin</td><td>—</td><td>Alojar <code>rosbridge</code> y <code>joint_server</code></td></tr>
+      <tr><td>Driver UR (el <em>proceso</em>)</td><td><strong>No</strong> — lo inicias tú</td><td>brazos encendidos y en RTDE</td><td>Leer y mover los brazos</td></tr>
+      <tr><td><code>mir_mir</code> (puente)</td><td>No — bajo demanda</td><td>MiR encendido y en la red</td><td>Traer los topics del MiR a ROS 2</td></tr>
+    </table>
+    <p><strong>Por qué el driver no arranca solo:</strong> si se conectara automáticamente a brazos apagados o en error quedaría en un estado feo. Lo enciendes desde la UI (botón <em>Start driver</em>, que corre <code>ur_start.sh</code>) cuando los brazos ya están listos; el script <strong>espera a que ambos respondan por RTDE</strong> antes de dar el OK.</p>
+    <p class="pill"><strong>Detalle fino:</strong> la cámara depende de que el <em>contenedor</em> del driver esté arriba, porque <code>rosbridge</code> (el que la expone al navegador) vive ahí dentro — aunque el <em>proceso</em> del driver UR no esté iniciado.</p>
+  </div>
+  <div class="card">
+    <p><strong>Receta típica para usar los brazos:</strong></p>
+    <ul class="tight">
+      <li><strong>1.</strong> Enciende los brazos y libera el e-stop.</li>
+      <li><strong>2.</strong> En la web, pulsa <em>Start driver</em>: <code>ur_start.sh</code> arranca el driver y <strong>espera la conexión RTDE</strong> de ambos brazos.</li>
+      <li><strong>3.</strong> Cuando el driver está listo, ya fluye <code>/joint_states</code> → ves los ángulos y el visor 3D, y puedes mover joints o usar las skills.</li>
+    </ul>
+    <p><strong>El nombre amigable:</strong> <code>mir_ui</code> publica <code>tunisuite.local</code> por <strong>mDNS</strong> (avahi), por eso entras sin recordar la IP ni el puerto.</p>
+  </div>
+
+  <h2>11. Preguntas frecuentes (para explicárselo a alguien)</h2>
+  <p class="lead">Las dudas que siempre saltan. Útiles para anticiparte cuando lo expliques.</p>
+  <div class="card faq">
+    <p class="q">¿El navegador "habla ROS"?</p>
+    <p class="a">No. El navegador solo habla <strong>HTTP</strong> y <strong>WebSocket</strong>. Todo lo de ROS vive dentro de Kevin. La frontera entre los dos mundos son <code>mir_ui</code> (REST) y <code>rosbridge</code> (WebSocket).</p>
+
+    <p class="q">¿Por qué la cámara va por WebSocket y los joints por HTTP?</p>
+    <p class="a">El video es un <strong>flujo continuo</strong> que conviene <em>empujar</em> (push) → WebSocket. Los joints se <strong>piden bajo demanda</strong> y se cachean fácil → un <code>GET</code> HTTP simple. En la práctica, el HTTP con cache resultó más confiable para <code>/joints</code>.</p>
+
+    <p class="q">¿Por qué <code>mir_ui</code> usa <code>docker exec</code> y no una API de ROS?</p>
+    <p class="a"><code>mir_ui</code> no tiene ROS instalado. En vez de duplicar ROS en el backend, le <strong>presta</strong> el ROS que ya corre en el contenedor del driver: entra ahí y ejecuta el comando. Menos piezas que mantener.</p>
+
+    <p class="q">¿Por qué el MiR necesita un puente?</p>
+    <p class="a">El MiR por dentro es <strong>ROS 1</strong> y nosotros somos <strong>ROS 2</strong>: no se entienden directo. El puente traduce mensaje por mensaje (tiempos, headers, nombres de campos).</p>
+
+    <p class="q">¿Por qué todos los contenedores comparten la red (<code>network_mode: host</code>)?</p>
+    <p class="a">El kernel de la Jetson no soporta bien las redes "bridge" de Docker. Al compartir la red de Kevin, <code>localhost</code> funciona entre contenedores y ROS 2 se descubre solo por DDS, sin configurar IPs.</p>
+
+    <p class="q">¿Qué pasa si el panel y el visor 3D piden los joints a la vez?</p>
+    <p class="a">No se duplica el tráfico: hay <strong>un solo poller</strong> en la web (compartido) y el backend <strong>cachea 100&nbsp;ms</strong>. Los dos consumen del mismo dato.</p>
+
+    <p class="q">¿Dónde está la seguridad?</p>
+    <p class="a">Tres capas: <strong>login + token</strong> en todos los <code>/api/*</code>; <strong>validación</strong> de cada comando (Pydantic limita el <code>delta</code>); y el acceso es solo por la <strong>red local</strong>, nunca por internet (al fin y al cabo, controla robots).</p>
+  </div>
+
+  <h2>12. Glosario rápido</h2>
   <div class="card">
     <table>
       <tr><th>Término</th><th>Qué es</th></tr>
       <tr><td><strong>ROS 2 topic</strong></td><td>Un "canal" de publicación/suscripción. Un nodo publica (ej. <code>/joint_states</code>) y otros escuchan. Flujo continuo.</td></tr>
       <tr><td><strong>ROS 2 action</strong></td><td>Para tareas que tardan (ej. mover el brazo): mandas una meta y recibes el resultado al terminar. Lo usamos para mover joints.</td></tr>
       <tr><td><strong>ROS 2 service</strong></td><td>Petición → respuesta inmediata (ej. <code>set_payload</code>). Como una función remota.</td></tr>
+      <tr><td><strong>Docker socket</strong></td><td>El "control remoto" de Docker (<code>/var/run/docker.sock</code>). Montado en <code>mir_ui</code>, le deja ejecutar comandos dentro de otros contenedores (<code>docker exec</code>).</td></tr>
+      <tr><td><strong>network_mode: host</strong></td><td>El contenedor comparte la red de Kevin (sin red "bridge" de Docker). Por eso vale <code>localhost</code> entre contenedores y DDS los descubre.</td></tr>
       <tr><td><strong>DDS</strong></td><td>El "transporte" interno de ROS 2. Gracias a <code>network_mode: host</code>, descubre nodos entre contenedores sin configurar.</td></tr>
       <tr><td><strong>rosbridge</strong></td><td>Un puente ROS ↔ WebSocket, para que un navegador (que no habla ROS) pueda suscribirse a topics. Lo usamos para la cámara.</td></tr>
       <tr><td><strong>RTDE</strong></td><td>El protocolo propio de Universal Robots para hablar con los brazos en tiempo real (TCP).</td></tr>
@@ -259,7 +465,7 @@
     </table>
   </div>
 
-  <h2>10. Por qué está armado así (decisiones)</h2>
+  <h2>13. Por qué está armado así (decisiones)</h2>
   <div class="card">
     <table>
       <tr><th>Decisión</th><th>Motivo</th></tr>
@@ -273,7 +479,7 @@
 
   <footer>
     MIR Suite — documento didáctico de flujo de datos · Kevin (Jetson AGX Orin) · Tampere University<br>
-    Generado el 25 de junio de 2026.
+    Generado el 25 de junio de 2026 · actualizado el 29 de junio (comunicación entre contenedores).
   </footer>
 </div>
 </body>

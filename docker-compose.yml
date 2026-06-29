@@ -44,6 +44,8 @@ services:
       - ./logs:/var/log/mir
       - ./scripts/mir_raw.py:/mir_raw.py
       - ./scripts/mir_entrypoint.sh:/entrypoint.sh
+      - ./scripts/mir_watchdog.sh:/mir_watchdog.sh
+      - ./scripts/mir_liveness.py:/mir_liveness.py
     environment:
       - ROS_DOMAIN_ID=75
     restart: unless-stopped

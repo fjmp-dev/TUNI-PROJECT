@@ -1,0 +1,51 @@
+%% MiR Suite - Deployment / Network Topology (UML-style, Mermaid)
+%% Networks are grouped and colour-coded; Kevin bridges WAN and Robot LAN.
+flowchart TB
+
+    subgraph WAN["WAN - TUNI University Network - 195.148.48.0/24"]
+        INET(["Internet uplink<br/>gateway 195.148.48.1"])
+    end
+
+    KEV["Kevin - Jetson AGX Orin  «device»<br/><b>the MiR Suite host</b><br/>LAN 192.168.1.75 · WAN 195.148.48.186<br/>Docker: mir_ui · mir_mir · mir_ur_driver · mir_camera"]
+    CAM["Orbbec 3D Camera  «device»<br/>(USB, not on the network)"]
+
+    subgraph LAN["Robot LAN - 192.168.1.0/24  (suite + all robots)"]
+        TEL["Teltonika RUT  «device»<br/><b>router + WiFi access point</b><br/>192.168.1.1 · SSID RUT_D572 / RUT_D572_5G"]
+        MIR["MiR200 - MiR_S455  «device»<br/>192.168.1.13 · connects by WiFi"]
+        URL["UR5e Left Arm  «device»<br/>192.168.1.102"]
+        URR["UR5e Right Arm  «device»<br/>192.168.1.103"]
+        N1["Nordbo F/T #1  «device»<br/>192.168.1.112"]
+        N2["Nordbo F/T #2  «device»<br/>192.168.1.113"]
+    end
+
+    subgraph DDW["dd-wrt LAN - 192.168.12.0/24  (ISOLATED)"]
+        DNOTE["Separate network, NOT reachable from Kevin.<br/>If the MiR joins here it gets a 192.168.12.x address<br/>and the suite can no longer see it. Do not use."]
+    end
+
+    INET ---|"Ethernet (Kevin lan1)"| KEV
+    KEV ---|"1000BASE-T, wired (Kevin lan2/lan4)"| TEL
+    KEV ---|"USB 3.0"| CAM
+    TEL ---|"Ethernet"| URL
+    TEL ---|"Ethernet"| URR
+    TEL ---|"Ethernet"| N1
+    TEL ---|"Ethernet"| N2
+    TEL -.->|"WiFi 5 GHz · RSSI -87 dBm — UNSTABLE, drops"| MIR
+
+    %% ---- network colours ----
+    style WAN fill:#eceff1,stroke:#607d8b,stroke-width:2px,color:#263238
+    style LAN fill:#e7f1fb,stroke:#1565c0,stroke-width:2px,color:#0b3d66
+    style DDW fill:#fdecea,stroke:#c62828,stroke-width:2px,color:#7a1f1f
+
+    %% ---- node styles ----
+    classDef host fill:#fff8e1,stroke:#f9a825,stroke-width:2.5px,color:#4e342e;
+    classDef device fill:#ffffff,stroke:#37474f,stroke-width:1.3px,color:#1b2733;
+    classDef bad fill:#fdeaea,stroke:#c62828,stroke-width:2px,color:#7a1f1f;
+    classDef ddnote fill:#ffffff,stroke:#c62828,stroke-width:1px,color:#7a1f1f;
+
+    class KEV host;
+    class INET,TEL,URL,URR,N1,N2,CAM device;
+    class MIR bad;
+    class DNOTE ddnote;
+
+    %% red dashed = the unstable WiFi link (8th link, index 7)
+    linkStyle 7 stroke:#c62828,stroke-width:2.5px,stroke-dasharray:6 5;

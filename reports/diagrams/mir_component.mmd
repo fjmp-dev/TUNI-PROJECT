@@ -1,0 +1,48 @@
+%% MiR Suite - Component Diagram (UML-style, Mermaid)
+flowchart LR
+    OP(["Operator<br/>«actor» - web browser"])
+
+    subgraph KEVIN["Kevin :: Docker Engine  «executionEnvironment»"]
+        UI["mir_ui  «component, FastAPI»<br/>auth - MiR proxy - Docker and UR control"]
+        BR["mir_mir  «component»<br/>ROS1 to ROS2 bridge<br/>liveness + watchdog"]
+        DRV["mir_ur_driver  «component»<br/>ros2_control - MoveIt - action_bridge"]
+        CAM["mir_camera  «component»"]
+    end
+
+    MIRAPI["MiR200 REST API<br/>«external, HTTP»"]
+    MIRBR["MiR200 rosbridge<br/>«external, ROS1 WS :9090»"]
+    URC["UR5e Controllers<br/>«external, RTDE»"]
+    ORB["Orbbec Driver<br/>«external, USB»"]
+
+    I_REST(["( ) HTTP REST :80"])
+    I_SPA(["( ) Static SPA"])
+    I_WS(["( ) WebSocket :9090 - rosbridge"])
+    I_JS(["( ) HTTP :9091 - joint_server"])
+    I_ROS(["( ) ROS 2 Topics - /odom /scan /robot_pose"])
+
+    UI --- I_REST
+    UI --- I_SPA
+    DRV --- I_WS
+    DRV --- I_JS
+    BR --- I_ROS
+
+    OP -->|"requests UI"| I_SPA
+    OP -->|"login + commands"| I_REST
+    OP -->|"camera + joint stream"| I_WS
+
+    UI -. "«HTTP» status / proxy" .-> MIRAPI
+    UI -. "container exec / driver control" .-> DRV
+    UI -. "consume MiR telemetry" .-> I_ROS
+    BR -. "«WebSocket» subscribe topics" .-> MIRBR
+    DRV -. "«RTDE» FollowJointTrajectory" .-> URC
+    CAM -. "«USB 3.0» frames" .-> ORB
+
+    classDef comp fill:#ffffff,stroke:#37474f,stroke-width:1.5px,color:#1b2733;
+    classDef ext fill:#f7f4ef,stroke:#9a7b4f,color:#4a3a23;
+    classDef iface fill:#eaf6ee,stroke:#2e9e4f,color:#1f5130;
+    classDef actor fill:#eef3f8,stroke:#0b6bcb,stroke-width:1.5px,color:#0b3d66;
+
+    class UI,BR,DRV,CAM comp;
+    class MIRAPI,MIRBR,URC,ORB ext;
+    class I_REST,I_SPA,I_WS,I_JS,I_ROS iface;
+    class OP actor;
