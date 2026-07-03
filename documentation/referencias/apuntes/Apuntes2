@@ -1,0 +1,25 @@
+Opening context (set the scene first)
+
+  ▎ "Quick context on where we are: the whole suite runs on Kevin (a Jetson) wired to the Teltonika router, which has the Elisa SIM for internet. The MiR, the two UR5e arms and the camera are all meant to live on that 192.168.1.0/24 network. Our goal — as Luis described it — is for the Teltonika (the SIM network) to be the single network everyone joins: Kevin, the MiR, and our laptops. The blocker is the MiR's WiFi: it connects to the Teltonika on 5 GHz, but we measure about −87 dBm and it drops off the network as soon as it moves away from the router. We tried a separate dd-wrt access point, but it's on a different subnet (192.168.12.x) that Kevin can't reach, and it only works right next to the MiR."
+
+
+################  Network design
+
+ "Given that, is making the Teltonika/SIM the single network the right design? Is there a reason the dd-wrt AP exists as a separate network — should we retire it, or can it be reconfigured as a coverage extender on the Teltonika's own subnet (192.168.1.x) instead of a separate one?"
+
+ ################  MiR coverage (it's mobile)
+"Because the MiR moves around, it needs WiFi that holds up as it roams — and 5 GHz has short range, which is why we lose it. What's the recommended way to give a mobile robot reliable coverage across the whole area: switch the MiR to 2.4 GHz (longer reach), add a second access point / mesh node on the same subnet, or reposition the Teltonika?" 
+
+"If we add a second AP or a mesh node for coverage, can it sit on the same subnet (192.168.1.x) so the MiR keeps the same IP (.13) and the suite keeps reaching it while it moves?"
+
+ "For a robot that hands off between access points, is there a roaming setup you'd recommend — the same SSID on multiple APs, band steering — so it doesn't disconnect on handoff?"
+
+################ Configuring the Teltonika / SIM
+
+ "Right now the MiR only sees the 5 GHz SSID (RUT_D572_5G) and we don't have the WiFi password. Do you know the correct way to set up the Teltonika/SIM WiFi (the 2.4 and 5 GHz SSIDs, DHCP)? And could you share the WiFi password, or set the MiR up on the network for us?"
+
+################ On the MiR itself
+
+ "Is the MiR's WiFi this weak because of the robot's own antenna/radio placement, or just distance? Is there anything we can tune on the robot side?"
+
+"The MiR's rosbridge drops/hangs intermittently and the robot is only stable in Pause. Is that known behavior on these obots, or could it just be caused by this flaky WiFi?"

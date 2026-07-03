@@ -1,0 +1,4 @@
+cd /home/lab/Desktop/MIR/mir_suite
+docker compose --profile full up -d       # everything
+docker compose --profile vision up -d     # UI + camera only
+docker compose logs -f                    # watch logs live

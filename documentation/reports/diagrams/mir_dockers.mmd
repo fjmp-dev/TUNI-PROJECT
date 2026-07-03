@@ -1,0 +1,44 @@
+%% MiR Suite - How the Docker containers connect
+flowchart TB
+    BROWSER["Web browser<br/>(operator device)"]
+
+    subgraph KEVIN["Kevin (Jetson) - all containers share the host network + ROS_DOMAIN_ID 75"]
+        direction TB
+        UI["mir_ui  «container, FastAPI»<br/>web UI + REST API :80<br/>+ Docker socket"]
+        DRV["mir_ur_driver  «container»<br/>rosbridge :9090 · joint_server :9091<br/>UR driver + controllers"]
+        CAM["mir_camera  «container»<br/>Orbbec node"]
+        MIRC["mir_mir  «container»<br/>ROS1 to ROS2 bridge"]
+    end
+
+    MIR["MiR200<br/>LAN 192.168.1.13"]
+    ARMS["UR5e arms<br/>LAN .102 / .103"]
+    ORB["Orbbec camera<br/>USB"]
+
+    %% browser <-> suite
+    BROWSER -->|"HTTP REST :80 (+token)"| UI
+    BROWSER -->|"WebSocket :9090 (camera)"| DRV
+
+    %% container <-> container (the key part)
+    UI -->|"HTTP localhost:9091 (read joints)"| DRV
+    UI -.->|"docker exec via Docker socket (commands)"| DRV
+    CAM -->|"DDS topic (image)"| DRV
+    MIRC -->|"DDS topics (MiR telemetry)"| UI
+
+    %% containers <-> hardware
+    UI -->|"HTTP REST (LAN)"| MIR
+    MIRC -->|"WebSocket :9090 (LAN)"| MIR
+    DRV -->|"RTDE / TCP (LAN)"| ARMS
+    CAM -->|"USB 3.0"| ORB
+
+    classDef cont fill:#fdf0e0,stroke:#b9760f,stroke-width:1.5px,color:#5b3a06;
+    classDef hw fill:#e6f2ec,stroke:#1f8a4c,stroke-width:1.5px,color:#0d3d24;
+    classDef usr fill:#eef3f8,stroke:#0b6bcb,stroke-width:1.5px,color:#0b3d66;
+    class UI,DRV,CAM,MIRC cont;
+    class MIR,ARMS,ORB hw;
+    class BROWSER usr;
+
+    %% edge colours: web=orange, inter-container localhost/socket=purple, DDS=green, hardware=teal
+    linkStyle 0,1 stroke:#b9760f,stroke-width:2.5px;
+    linkStyle 2,3 stroke:#4e008e,stroke-width:2.5px;
+    linkStyle 4,5 stroke:#1f8a4c,stroke-width:2.5px;
+    linkStyle 6,7,8,9 stroke:#0e7490,stroke-width:2.5px;

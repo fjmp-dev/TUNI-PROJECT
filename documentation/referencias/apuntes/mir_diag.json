@@ -1,0 +1,228 @@
+{
+  "version": "30.1.2",
+  "pages": [
+    {
+      "id": "SydwBna-S9cw4jJplPl0",
+      "name": "Page-1",
+      "cells": [
+        {
+          "id": "1",
+          "type": "layer"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-4",
+          "type": "node",
+          "parent": "1"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-1",
+          "type": "node",
+          "parent": "1",
+          "label": "ROS1\nMIR 200",
+          "html": "<div><br></div><div>ROS1</div><div><br></div>MIR 200"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-2",
+          "type": "node",
+          "parent": "1"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-3",
+          "type": "node",
+          "parent": "1"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-5",
+          "type": "edge",
+          "parent": "1"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-6",
+          "type": "node",
+          "parent": "1",
+          "label": "ROS2\nACCELERATOR 1",
+          "html": "<div>ROS2</div><div><br></div>ACCELERATOR 1&nbsp;"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-7",
+          "type": "node",
+          "parent": "1"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-8",
+          "type": "node",
+          "parent": "1"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-9",
+          "type": "edge",
+          "parent": "1"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-10",
+          "type": "node",
+          "parent": "1",
+          "label": "BRIDGE \nROS1-ROS2",
+          "html": "BRIDGE&nbsp;<div>ROS1-ROS2</div>"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-11",
+          "type": "node",
+          "parent": "1",
+          "label": "TCP"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-12",
+          "type": "node",
+          "parent": "1",
+          "label": "ROUTER"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-13",
+          "type": "edge",
+          "parent": "1",
+          "target": "rCEpRt9tIaPl_z4FfWgS-12"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-14",
+          "type": "edge",
+          "parent": "1",
+          "source": "rCEpRt9tIaPl_z4FfWgS-12",
+          "target": "rCEpRt9tIaPl_z4FfWgS-1"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-15",
+          "type": "node",
+          "parent": "1",
+          "label": "ETHERNET"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-18",
+          "type": "edge",
+          "parent": "1",
+          "target": "rCEpRt9tIaPl_z4FfWgS-19"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-19",
+          "type": "node",
+          "parent": "1",
+          "label": "ACCELERATOR 2"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-20",
+          "type": "node",
+          "parent": "1",
+          "label": "ENDEFFER"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-23",
+          "type": "edge",
+          "parent": "1",
+          "source": "rCEpRt9tIaPl_z4FfWgS-19",
+          "target": "rCEpRt9tIaPl_z4FfWgS-20"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-24",
+          "type": "edge",
+          "parent": "1",
+          "target": "rCEpRt9tIaPl_z4FfWgS-20"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-25",
+          "type": "node",
+          "parent": "1",
+          "label": "UR5E-2"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-26",
+          "type": "edge",
+          "parent": "1",
+          "source": "rCEpRt9tIaPl_z4FfWgS-19"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-27",
+          "type": "node",
+          "parent": "1",
+          "label": "UR5E-1"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-28",
+          "type": "edge",
+          "parent": "1",
+          "source": "rCEpRt9tIaPl_z4FfWgS-12"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-29",
+          "type": "edge",
+          "parent": "1",
+          "source": "rCEpRt9tIaPl_z4FfWgS-19"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-30",
+          "type": "node",
+          "parent": "1",
+          "label": "TCP"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-31",
+          "type": "node",
+          "parent": "1",
+          "label": "TCP"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-33",
+          "type": "node",
+          "parent": "1"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-34",
+          "type": "node",
+          "parent": "1",
+          "label": "WEB"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-35",
+          "type": "node",
+          "parent": "1",
+          "label": "PERSONAL LAPTOP"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-36",
+          "type": "node",
+          "parent": "1",
+          "label": "LOCALHOST HTTPS....."
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-37",
+          "type": "edge",
+          "parent": "1",
+          "target": "rCEpRt9tIaPl_z4FfWgS-36"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-40",
+          "type": "node",
+          "parent": "1",
+          "label": "SSH 8080 -- 8765"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-42",
+          "type": "edge",
+          "parent": "1",
+          "source": "rCEpRt9tIaPl_z4FfWgS-12"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-43",
+          "type": "node",
+          "parent": "1",
+          "label": "SIM CARD 4G/5G NETWORK"
+        },
+        {
+          "id": "rCEpRt9tIaPl_z4FfWgS-44",
+          "type": "edge",
+          "parent": "1",
+          "target": "rCEpRt9tIaPl_z4FfWgS-43"
+        }
+      ]
+    }
+  ]
+}

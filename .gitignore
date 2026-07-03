@@ -36,3 +36,6 @@ Thumbs.db
 .github_token
 *.token
 .env
+
+# Self-contained workspace copy (heavy, not versioned)
+robot_workspace/

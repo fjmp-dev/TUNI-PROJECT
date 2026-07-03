@@ -3,7 +3,7 @@ services:
   mir_ui:
     build:
       context: .
-      dockerfile: docker/ui/Dockerfile
+      dockerfile: UI/ui_image/Dockerfile
     image: mir_ui:latest
     container_name: mir_ui
     network_mode: host
@@ -12,22 +12,25 @@ services:
     volumes:
       # The Svelte UI is baked into the image (multi-stage build). Only main.py is
       # mounted so backend tweaks don't need a rebuild.
-      - ./backend/main.py:/app/main.py
+      - ./UI/backend/main.py:/app/main.py
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
   # --- Services by profile ---
 
   camera:
-    build: ./docker/camera
+    build:
+      context: .
+      dockerfile: PERIPHERAL/camera_orbbec/camera_image/Dockerfile
     image: mir-camera:latest
     container_name: mir_camera
     network_mode: host
     privileged: true
     volumes:
-      - /home/lab/pbd_system:/root/workspace
+      - ./robot_workspace:/root/workspace
       - ./logs:/var/log/mir
       - /dev:/dev
+      - ./PERIPHERAL/camera_orbbec/camera_entrypoint/camera_entrypoint.sh:/entrypoint.sh
     environment:
       - ROS_DOMAIN_ID=75
     restart: unless-stopped
@@ -35,39 +38,39 @@ services:
   mir:
     build:
       context: .
-      dockerfile: docker/mir/Dockerfile
+      dockerfile: MiR/mir_image/Dockerfile
     image: mir-mir:latest
     container_name: mir_mir
     network_mode: host
     volumes:
-      - /home/lab/pbd_system:/root/workspace
+      - ./robot_workspace:/root/workspace
       - ./logs:/var/log/mir
-      - ./scripts/mir_raw.py:/mir_raw.py
-      - ./scripts/mir_entrypoint.sh:/entrypoint.sh
-      - ./scripts/mir_watchdog.sh:/mir_watchdog.sh
-      - ./scripts/mir_liveness.py:/mir_liveness.py
+      - ./MiR/bridge_mir/mir_raw.py:/mir_raw.py
+      - ./MiR/mir_entrypoint/mir_entrypoint.sh:/entrypoint.sh
+      - ./MiR/mir_watchdog/mir_watchdog.sh:/mir_watchdog.sh
+      - ./MiR/mir_liveness/mir_liveness.py:/mir_liveness.py
     environment:
       - ROS_DOMAIN_ID=75
     restart: unless-stopped
 
   ur_driver:
-    build: ./docker/ur_driver
+    build: ./UR/ur_driver_image
     image: mir-ur-driver:latest
     container_name: mir_ur_driver
     network_mode: host
     privileged: true
     profiles: [arms, full]
     volumes:
-      - /home/lab/pbd_system:/root/workspace
+      - ./robot_workspace:/root/workspace
       - ./logs:/var/log/mir
       - /dev:/dev
       - /usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/tegra
-      - ./scripts/action_bridge.py:/action_bridge.py
-      - ./scripts/ur_entrypoint.sh:/entrypoint.sh
-      - ./scripts/ur_start.sh:/ur_start.sh
-      - ./scripts/ur_stop.sh:/ur_stop.sh
-      - ./scripts/joint_server.py:/joint_server.py
-      - ./scripts/joint_mover.py:/joint_mover.py
+      - ./UR/action_bridge/action_bridge.py:/action_bridge.py
+      - ./UR/ur_entrypoint/ur_entrypoint.sh:/entrypoint.sh
+      - ./UR/ur_start/ur_start.sh:/ur_start.sh
+      - ./UR/ur_stop/ur_stop.sh:/ur_stop.sh
+      - ./UR/joint_server/joint_server.py:/joint_server.py
+      - ./UR/joint_mover/joint_mover.py:/joint_mover.py
       - ./config:/mir/config
     environment:
       - ROS_DOMAIN_ID=75
@@ -75,25 +78,25 @@ services:
     restart: unless-stopped
 
   ur_driver_sim:
-    build: ./docker/ur_driver
+    build: ./UR/ur_driver_image
     image: mir-ur-driver:latest
     container_name: mir_ur_driver_sim
     network_mode: host
     privileged: true
     profiles: [sim]
     volumes:
-      - /home/lab/pbd_system:/root/workspace
+      - ./robot_workspace:/root/workspace
       - ./logs:/var/log/mir
       - /dev:/dev
       - /usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/tegra
-      - ./scripts/action_bridge.py:/action_bridge.py
-      - ./scripts/sim_entrypoint.sh:/entrypoint.sh
-      - ./scripts/joint_server.py:/joint_server.py
-      - ./scripts/joint_mover.py:/joint_mover.py
+      - ./UR/action_bridge/action_bridge.py:/action_bridge.py
+      - ./UR/sim_entrypoint/sim_entrypoint.sh:/entrypoint.sh
+      - ./UR/joint_server/joint_server.py:/joint_server.py
+      - ./UR/joint_mover/joint_mover.py:/joint_mover.py
       # Patched duo_ur launch (fake_hardware fix) overlaid read-only so Eemil's
       # workspace stays pristine. Only the sim needs it: the patched block runs
       # only when use_fake_hardware:=true, so the real driver uses the original.
-      - ./vendor/duo_ur/duo_ur_real.launch.py:/root/workspace/ros_ws/src/dev_repos/duo_ur/launch/duo_ur_real.launch.py:ro
+      - ./UR/duo_ur_launch_patch/duo_ur_real.launch.py:/root/workspace/ros_ws/src/UR_arms/duo_ur/launch/duo_ur_real.launch.py:ro
       - ./config:/mir/config
     environment:
       - ROS_DOMAIN_ID=75

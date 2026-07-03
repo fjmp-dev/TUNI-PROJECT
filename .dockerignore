@@ -1,10 +1,10 @@
 # Keep the Docker build context small.
 **/node_modules
-web/dist
-web/public/models
+UI/web/dist
+UI/web/public/models
+robot_workspace
 logs
-reports
-docs
+documentation
 *.pyc
 __pycache__
 .git

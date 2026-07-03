@@ -1,0 +1,152 @@
+ "This diagram shows how our suite is wired. Everything runs on Kevin — the Jetson — inside four Docker containers, and the
+  ▎ user only opens a browser."
+  ▎
+  ▎ 1. "The browser talks to mir_ui, our backend, over HTTP. Every request carries a login token, and the body is just JSON. The camera
+  ▎ comes separately, over a WebSocket — a stream that stays open, which is good for video." (orange)
+  ▎
+  ▎ 2. "The key idea: all four containers share Kevin's network and the same ROS domain, so they discover each other automatically — no
+  ▎ IP setup, they just talk over localhost and over ROS."
+  ▎
+  ▎ 3. "mir_ui is the brain, but it never touches the robots directly — it reads data and delegates commands. Two flavors:" (purple)
+  ▎ - "Reading — the driver publishes the joint angles on a ROS topic about 500 times a second. A tiny HTTP server keeps the latest 
+  ▎ value in memory, like a whiteboard, and the browser just asks for it every quarter second."
+  ▎ - "Commanding — to move a joint, the browser sends a small JSON: which arm, which joint, how much. mir_ui checks it's valid, then 
+  ▎ runs a script inside the driver container through the Docker socket. That script turns it into a ROS action — basically a little 
+  ▎ trajectory, 'go from here to there in 3 seconds' — and the controller streams it to the arm."
+  ▎
+  ▎ 4. "The camera and the MiR bridge publish their data on ROS 2; the other containers just subscribe. The camera frames get converted
+  ▎ to text — base64 — so the browser can show them." (green)
+  ▎
+  ▎ 5. "Finally, each container talks to its real hardware: the driver to the UR arms over RTDE — a real-time link at 500 Hz — the 
+  ▎ bridge to the MiR over WebSocket, and the camera over USB." (blue)
+  ▎
+  ▎ Close: "So commands go down as small JSON and turn into ROS messages; data comes back as a live stream. mir_ui orchestrates — 
+  ▎ reads, validates, delegates."
+  
+  
+  
+  
+  
+  Apertura: 
+  - Punto 1 (naranja): El navegador habla con mir_ui por HTTP. Cada petición lleva un token (si no, 401) y el cuerpo es JSON. La cámara
+  va aparte por WebSocket (un canal que queda abierto y va “empujando” los frames — ideal para video, no para pedir uno por uno).
+  
+  - Punto 2 (idea clave): Los 4 contenedores comparten la red de Kevin y el mismo ROS_DOMAIN_ID. Por eso se hablan por localhost y ROS 
+  2 los descubre solos (DDS). Sin esto, nada se encontraría.
+  
+  - Punto 3 (morado — el corazón del “cómo se manda”): mir_ui es el cerebro, pero no toca los robots: lee datos y delega órdenes.
+    - Leer: el driver publica /joint_states ~500 veces/seg. Un servidorcito (joint_server) guarda el último valor en memoria (el “pizarrón”), y el navegador lo pide por HTTP cada 250 ms. Así no se interrumpe al robot en cada lectura.
+    - Mandar (mover): el navegador hace un POST con JSON ({arm, joint, delta}). mir_ui lo valida (joint válido, |delta| ≤ 0.5 rad) y luego entra al contenedor del driver con docker exec (socket de Docker) y corre joint_mover.py. Ese script lo convierte en una acción de ROS = una trayectoria de 2 puntos (“de aquí a allá en 3 s”), y el controlador la ejecuta enviándola al brazo por RTDE.
+  
+  - Punto 4 (verde): La cámara y el puente del MiR publican en ROS 2; los demás se suscriben (modelo publish/subscribe). Los frames de la cámara se convierten a base64 (texto) para que el navegador los pueda mostrar.
+  
+  - Punto 5 (azul): Cada contenedor con su hardware: driver ↔ brazos por RTDE (tiempo real, 500 Hz), puente ↔ MiR por WebSocket, cámara por USB.
+  - Cierre: Los comandos bajan como JSON pequeño y se vuelven mensajes de ROS; los datos suben como flujo en vivo. mir_ui orquesta: lee, valida, delega.
+
+  Tip: ve señalando las flechas por color (naranja → morado → verde → azul) mientras hablas; el punto 3 es donde conviene detenerte un
+  poco más, porque es el “cómo se mandan las cosas” de verdad.
+
+
+
+#################################  Cómo Nace El Controlador
+
+  Cuando pulsas "Start driver", mir_ui corre (por docker exec, dentro de mir_ur_driver) el script ur_start.sh, que hace esto:
+
+  ros2 launch duo_ur duo_ur_real.launch.py ... controller_spawner_timeout:=60
+
+  Ese launch (del paquete duo_ur de Eemil) arranca todo el stack de ros2_control, y dentro de él:
+  - La interfaz de hardware (left_ur / right_ur) → la parte que habla RTDE con cada brazo.
+  - Los controladores (joint_trajectory_controller por brazo, etc.) → se "spawnean" y quedan activos. Cada uno expone su action 
+  server /{brazo}_joint_trajectory_controller/follow_joint_trajectory.
+
+  Como ur_start.sh se ejecuta dentro de mir_ur_driver, todos esos procesos (controller_manager, controladores, interfaz RTDE)
+  nacen en esa caja. El contenedor ya viene equipado para lanzarlos: la imagen trae ROS 2 + el workspace de Eemil montado (con el
+  paquete duo_ur: el launch, la config de los controladores y la interfaz de hardware).
+
+  Por qué joint_mover puede mandarle la trayectoria (el giro)
+
+  No es por estar en el mismo contenedor. Es porque están en el mismo grafo de ROS — mismo ROS_DOMAIN_ID=75 y misma red.
+  joint_mover crea un ActionClient apuntando al nombre del controlador, y DDS (el "correo" de ROS) los descubre y los conecta:
+
+  joint_mover  --(ActionClient por nombre)-->  /right_joint_trajectory_controller/follow_joint_trajectory
+                           ↑ DDS descubre quién publica ese action server
+
+  ▎ Dato clave: gracias a la red host compartida + el mismo ROS_DOMAIN_ID, esto funcionaría incluso si estuvieran en contenedores
+  ▎ distintos. Los pusimos en la misma caja porque es lo más simple (comparten el workspace ya "sourceado" y el entorno), no 
+  ▎ porque sea obligatorio.
+
+  La analogía (cocina)
+
+  ▎ La cocina (mir_ur_driver) viene equipada con recetas y estaciones (el workspace de Eemil). "Start driver" = encender la 
+  ▎ cocina: el launch prende el controller_manager y deja activas las estaciones (los controladores). El cocinero (joint_mover) y
+  ▎ la estación (el controlador) están en la misma cocina y en el mismo canal de intercomunicador (el dominio de ROS), así que 
+  ▎ el cocinero solo grita el nombre de la estación y le pasa el plato (la trayectoria).
+
+  ---
+  Resumen: el controlador no se "inserta" — se crea al lanzar el driver (ros2 launch duo_ur) dentro de mir_ur_driver. Y
+  joint_mover lo alcanza porque comparten el grafo de ROS (DDS + mismo dominio), no por la caja en sí.
+  
+#################################  4. Brazos UR5e — leer las posiciones (joints)  #################################
+Los brazos hablan por RTDE (Real-Time Data Exchange, el protocolo propio de Universal Robots, sobre TCP). El driver UR (paquete duo_ur del workspace de Eemil) mantiene esa conexión y publica el topic /joint_states a unos 400–490 Hz.
+Un topic de ROS 2 no lo puede leer un navegador directo. En vez de abrir el topic cada vez (lento), hicimos joint_server.py: un pequeño servidor HTTP en :9091 que se suscribe una sola vez a /joint_states y siempre tiene a mano el último valor en formato JSON.
+El backend (/api/ur/joints) le hace de proxy a ese servidor (con un cache de 100 ms para no saturarlo).
+La página consulta /api/ur/joints cada 250 ms (un único "poller" compartido que alimenta tanto el panel de números como el visor 3D).
+Por qué un servidor HTTP y no docker exec por petición: abrir un proceso por cada lectura tardaba ~200 ms; el servidor persistente responde en ~5–10 ms.
+
+El servidor que "tiene a la mano el último JSON" — qué es exactamente.
+
+El problema: el driver publica /joint_states ~500 veces por segundo. Un navegador no habla ROS, y abrir una conexión ROS nueva por cada lectura tardaba ~200 ms (lentísimo, y son muchas lecturas).
+
+La solución (joint_server.py): un programita de Python que corre dentro del contenedor del driver y hace dos cosas a la vez, en dos hilos:
+
+Como nodo ROS 2, se suscribe una sola vez a /joint_states. Cada vez que llega un mensaje, lo guarda en una variable en memoria, pisando el anterior (solo le importa el más nuevo — usa QoS depth=1).
+Como servidor HTTP en :9091, cuando alguien pide GET /joints, devuelve esa variable convertida a JSON — al instante (~5 ms), sin tocar ROS en ese momento.
+La analogía: es un pizarrón. El robot escribe sin parar su posición actual en el pizarrón (la suscripción), y quien la necesita solo lee el pizarrón (el GET), en vez de interrumpir al robot cada vez. Así se unen dos mundos con ritmos muy distintos: ROS empuja a 500 Hz; el navegador jala cuando quiere (cada 250 ms).
+El JSON que entrega ya viene "masticado": separa los joints en left/right e incluye age_s (qué tan viejo es el último dato) y un flag stale (true si pasaron >2 s sin datos), para que la UI sepa si lo que muestra es fresco o no:
+
+GET http://localhost:9091/joints  ->
+{
+  // los 6 ángulos de cada brazo, en radianes
+  "left":  { "shoulder_pan": -0.01, "elbow": -1.57, ... },
+  "right": { "shoulder_pan":  0.02, "elbow": -1.20, ... },
+  "age_s": 0.012,    // el dato tiene 12 ms de antiguedad
+  "stale": false     // true si pasaran > 2 s sin datos
+}
+
+Cómo habla el driver con el brazo físico (RTDE), a fondo.
+
+RTDE (Real-Time Data Exchange) es el canal de tiempo real de Universal Robots, por TCP. El brazo expone varios puertos (30001-30004); el driver mantiene una conexión siempre abierta y, a ~500 Hz, lee el estado (posiciones, velocidades, fuerzas) y escribe comandos.
+Dentro del driver corre ros2_control, en dos capas: un hardware interface (el único que realmente habla RTDE) y, encima, los controllers — como joint_trajectory_controller (para mover) o freedrive_mode_controller (para guiar a mano) — que traducen metas de alto nivel a comandos.
+Del lado del robot debe estar corriendo un programa (el URCap "External Control") que le cede el control en tiempo real al driver. Si ese programa se detiene, los comandos se rechazan — por eso en la recuperación se llama resend_robot_program.
+  
+################################  5. Brazos UR5e — mover un joint  #################################
+  Qué hace el controlador con esa trayectoria. El joint_trajectory_controller es un action server: recibe la meta (2 puntos — dónde está → dónde termina, en N segundos) y la interpola, generando muchos puntos intermedios que manda al brazo por RTDE al ritmo de control. No es un salto: es un movimiento suave, punto a punto.
+
+Por qué 2 puntos y una duración: el primer punto (la posición actual) evita un tirón al arrancar; la duración (≈ 3 s para 0.1 rad) fija la velocidad del movimiento.
+Cómo se sabe que terminó: la acción de ROS 2 devuelve un resultado (SUCCEEDED); ahí el backend responde "ok" al navegador.
+Si falla (goal rechazado / controlador no disponible / timeout — típico si el programa externo del UR se cayó): el backend llama resend_robot_program, reactiva el controlador y reintenta una vez, en automático.
+
+
+################################# 6. Brazos UR5e — payload (smart skill)  #################################
+Aquí la conversión es a un servicio de ROS 2 (un "llamado": petición → respuesta), no a una acción. El backend traduce {arm, mass, cog} a una llamada ros2 service call … set_payload. El brazo guarda esos valores para compensar la gravedad y detectar colisiones. No hay movimiento.
+
+################################  7. MiR200 — telemetría por REST #################################
+
+l MiR trae su propia API REST (HTTP en el puerto 80). El backend le hace GET http://192.168.1.13/api/v2.0.0/status y recibe un JSON grande.
+El backend mapea ese JSON a uno más limpio (battery_percentage → battery_pct, state_text → state, etc.).
+El MiR responde a ratos; por eso el backend guarda el último valor por 20 segundos. Si el MiR no contesta, sirve el último conocido marcado como stale (viejo), y la UI lo avisa con su antigüedad.
+
+
+################################  8. MiR200 — el puente ROS1 → ROS2#################################
+
+El MiR por dentro corre ROS 1 (nosotros usamos ROS 2). El contenedor mir_mir corre mir_raw.py (código de Eemil) que se conecta al rosbridge del MiR por WebSocket, descubre automáticamente sus topics y, por cada uno, crea un publicador equivalente en ROS 2.
+
+Conversiones ROS1 → ROS2 que hace al traducir cada mensaje:
+
+Time: secs/nsecs (ROS1) → sec/nanosec (ROS2).
+Header: se elimina el campo seq (ya no existe en ROS2).
+CameraInfo: se renombran campos D/K/R/P → d/k/r/p.
+DiagnosticStatus.level: se ajusta al rango válido.
+
+################################  9. El visor 3D ################################
+El visor no abre ninguna conexión propia: lee del mismo poller de /api/ur/joints (paso 4). Con esos 12 ángulos y la cadena cinemática del robot (ur5e_chain.json, sacada del modelo URDF), dibuja cada brazo con primitivos (cilindros para los eslabones, esferas para las articulaciones) usando Three.js, y rota cada articulación según su ángulo en vivo.

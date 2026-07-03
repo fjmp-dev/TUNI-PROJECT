@@ -1,0 +1,36 @@
+flowchart TB
+  USER(["YOU<br/>a web browser"])
+
+  subgraph KEVIN["KEVIN — the Jetson · the 4 containers share ONE network"]
+    UI["<b>mir_ui</b> — the receptionist<br/>serves the web page + API<br/>validates · delegates · never touches robots"]
+    DRV["<b>mir_ur_driver</b> — runs the ARMS<br/>(driver + controllers + joint_server + rosbridge)"]
+    CAM["<b>mir_camera</b><br/>runs the CAMERA"]
+    BR["<b>mir_mir</b><br/>bridge to the MiR"]
+  end
+
+  ARMS(["UR5e arms"])
+  ORB(["Orbbec camera"])
+  MIR(["MiR200 robot"])
+
+  USER -->|"commands + page data<br/>HTTP :80"| UI
+  USER -->|"watch the camera<br/>WebSocket"| DRV
+  UI -->|"read joint positions<br/>HTTP localhost:9091"| DRV
+  UI -.->|"run a command INSIDE it<br/>docker exec"| DRV
+  UI -->|"ask MiR status<br/>HTTP (LAN)"| MIR
+  CAM ==>|"camera image<br/>ROS 2 / DDS"| DRV
+  BR ==>|"MiR live data<br/>ROS 2 / DDS"| UI
+  DRV <-->|"RTDE"| ARMS
+  CAM -->|"USB"| ORB
+  BR <-->|"WebSocket (LAN)"| MIR
+
+  classDef cont fill:#fdf0e0,stroke:#b9760f,stroke-width:1.6px,color:#5b3a06;
+  classDef hw fill:#e6f2ec,stroke:#1f8a4c,stroke-width:1.6px,color:#0d3d24;
+  classDef usr fill:#eef3f8,stroke:#0b6bcb,stroke-width:1.8px,color:#0b3d66;
+  class UI,DRV,CAM,BR cont;
+  class ARMS,ORB,MIR hw;
+  class USER usr;
+
+  linkStyle 0,1 stroke:#b9760f,stroke-width:2.5px;
+  linkStyle 2,3 stroke:#4e008e,stroke-width:2.5px;
+  linkStyle 5,6 stroke:#1f8a4c,stroke-width:3px;
+  linkStyle 4,7,8,9 stroke:#0e7490,stroke-width:2.5px;
