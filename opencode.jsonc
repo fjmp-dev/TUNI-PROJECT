@@ -1,0 +1,108 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // ============================================================
+  // MCP SERVERS
+  // ============================================================
+  // MCPs add tools to opencode. Each enabled server contributes its tools to
+  // the LLM context. The doc warns: certain MCPs (notably GitHub) add a lot
+  // of tokens. We keep enabled:false by default for everything except the
+  // ones we use every session, so the user can opt-in by editing this file.
+  //
+  // To enable: change "enabled": false to "enabled": true, save, and restart
+  // opencode (config is loaded once at startup).
+
+  "mcp": {
+    // ----- LIBRARY DOCUMENTATION -----
+    // Context7: pulls up-to-date docs for libraries. We use this constantly for
+    // ROS2, FastAPI, Svelte, Docker SDK, rclpy, etc. Set CONTEXT7_API_KEY env
+    // var (free tier gives higher rate limits).
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": false,
+      "headers": {
+        "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"
+      }
+    },
+
+    // ----- GITHUB REPO INTEGRATION -----
+    // GitHub MCP: full read/write access to issues, PRs, releases, code search.
+    // WARNING: this server exposes many tools and burns a lot of context. Only
+    // enable when actively working on the GitHub repo. Token is in env var.
+    "github": {
+      "type": "remote",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "enabled": false,
+      "headers": {
+        "Authorization": "Bearer {env:GITHUB_TOKEN}"
+      }
+    },
+
+    // ----- WEB UI TESTING -----
+    // Playwright MCP: drives a real browser to test the Svelte UI (camera
+    // panel, joint display, login flow, error states). Heavy — only enable
+    // when actively testing the UI.
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "-y", "@playwright/mcp"],
+      "enabled": false
+    },
+
+    // ----- ROS2 / DOCKER DEBUGGING -----
+    // Docker MCP: exposes docker / docker compose operations as MCP tools. Lets
+    // opencode manage the suite directly (start/stop containers, read logs,
+    // inspect networks) without manual bash. We have docker.sock mounted in
+    // mir_ui already, but having it at the opencode level is convenient.
+    "docker": {
+      "type": "local",
+      "command": ["docker", "mcp", "gateway", "run", "--transport", "stdio"],
+      "enabled": false
+    },
+
+    // ----- FILE SYSTEM OPERATIONS -----
+    // opencode already has full filesystem tools (read, edit, glob, grep).
+    // We do NOT add a separate filesystem MCP — it would just duplicate tools.
+    // Uncomment to enable if you want a more restricted filesystem MCP:
+    // "filesystem": {
+    //   "type": "local",
+    //   "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem",
+    //               "--allowed-directories", "/home/lab/Desktop/MIR/mir_suite"],
+    //   "enabled": false
+    // },
+
+    // ----- EVERYTHING-TEST MCP (for debugging new MCP integrations) -----
+    // The reference MCP server used by the opencode docs as an example. Useful
+    // for sanity-testing that the MCP wiring works. Heavy debug output.
+    "mcp_everything": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-everything"],
+      "enabled": false
+    }
+  },
+
+  // ============================================================
+  // TOOLS
+  // ============================================================
+  // Disable MCP tool names by glob. Default: all MCPs off (per `enabled`
+  // flags above). Once you flip an MCP to enabled, its tools become available
+  // automatically. To forcibly disable a specific tool from an enabled MCP,
+  // add it to `tools` with value `false`.
+  "tools": {},
+
+  // ============================================================
+  // TOOL OUTPUT
+  // ============================================================
+  // For robotics: a move command can produce a lot of logs. 800 lines is
+  // usually enough to see the controller's response without flooding context.
+  "tool_output": {
+    "max_lines": 800,
+    "max_bytes": 16384
+  },
+
+  // ============================================================
+  // INSTRUCTIONS
+  // ============================================================
+  // Auto-loaded by opencode at startup. We use it for project-wide rules.
+  "instructions": ["AGENTS.md"]
+}
