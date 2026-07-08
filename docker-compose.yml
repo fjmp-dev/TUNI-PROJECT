@@ -14,6 +14,9 @@ services:
       # mounted so backend tweaks don't need a rebuild.
       - ./UI/backend/main.py:/app/main.py
       - /var/run/docker.sock:/var/run/docker.sock
+      # Per-user profiles (YAML) live here so they persist across restarts/rebuilds.
+      # Dedicated dir (not ./config) so .env secrets aren't exposed to a container with docker.sock.
+      - ./UI/backend/data:/app/data
     restart: unless-stopped
 
   # --- Services by profile ---
@@ -71,10 +74,14 @@ services:
       - ./UR/ur_stop/ur_stop.sh:/ur_stop.sh
       - ./UR/joint_server/joint_server.py:/joint_server.py
       - ./UR/joint_mover/joint_mover.py:/joint_mover.py
+      # Touch-hands node (BrainCo Revo1) — launchable on demand via /api/nodes/touch_*.
+      - ./ENDEFFECTOR/touch_sensor_node/touch_sensor_node.py:/touch_sensor_node.py
+      - ./ENDEFFECTOR/hand_control_node/hand_control_node.py:/hand_control_node.py
       - ./config:/mir/config
     environment:
       - ROS_DOMAIN_ID=75
       - DISPLAY=:1
+      - UR_CONTAINER=mir_ur_driver
     restart: unless-stopped
 
   ur_driver_sim:
@@ -97,8 +104,17 @@ services:
       # workspace stays pristine. Only the sim needs it: the patched block runs
       # only when use_fake_hardware:=true, so the real driver uses the original.
       - ./UR/duo_ur_launch_patch/duo_ur_real.launch.py:/root/workspace/ros_ws/src/UR_arms/duo_ur/launch/duo_ur_real.launch.py:ro
+      # Touch-hands node (BrainCo Revo1) — launchable on demand via /api/nodes/touch_*.
+      - ./ENDEFFECTOR/touch_sensor_node/touch_sensor_node.py:/touch_sensor_node.py
+      - ./ENDEFFECTOR/hand_control_node/hand_control_node.py:/hand_control_node.py
+      # ur_start/ur_stop so the arm driver can start ON DEMAND in the sim too.
+      - ./UR/ur_start/ur_start.sh:/ur_start.sh
+      - ./UR/ur_stop/ur_stop.sh:/ur_stop.sh
       - ./config:/mir/config
     environment:
       - ROS_DOMAIN_ID=75
       - DISPLAY=:1
+      # ur_start.sh launches mock hardware here (no real arms in the sim).
+      - UR_FAKE_HARDWARE=true
+      - UR_CONTAINER=mir_ur_driver_sim
     restart: unless-stopped

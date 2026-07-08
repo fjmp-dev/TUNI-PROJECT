@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
@@ -8,8 +8,48 @@ import httpx
 import asyncio
 import os
 import re
+import json
+import glob
+import time
+import hmac
+import hashlib
+import secrets
+import threading
+import yaml
 
 app = FastAPI(title="MIR Suite")
+
+# ============================================================
+# Safety: validate any pattern that will be passed to `pkill -f` inside a
+# container. Allowed chars cover everything the existing NODES['stop'] and
+# freedrive-disable patterns use: alnum, dot, dash, underscore, slash (paths),
+# space (with --ports), colon (e.g. /dev/ttyUSB0:left), brackets (the [d]uo_ur_real
+# trick that keeps pgrep from matching its own command line), and hyphen.
+# Blocked: any shell metacharacter (`;&|<>$()*`"'`#?!~{}`). Defense-in-depth:
+# today only NODES['stop'] produces pkill patterns, and those are dev-written.
+# This guard ensures that future code that interpolates external data into a
+# pkill pattern can't escalate to arbitrary shell execution.
+# ============================================================
+import logging as _logging
+_log = _logging.getLogger("mir_ui")
+_PKILL_SAFE = re.compile(r"^[A-Za-z0-9_./ :\[\]-]+$")
+
+
+def _safe_pkill(container, pattern):
+    """Validate `pattern` then run `pkill -f` in `container`. Raises ValueError on
+    any unsafe pattern so the caller surfaces a 400/500 instead of executing
+    arbitrary shell content. Returns the docker exec result for callers that
+    need to inspect exit code / output; other callers can ignore the return."""
+    if not isinstance(pattern, str) or not _PKILL_SAFE.match(pattern):
+        _log.error("refusing pkill with unsafe pattern: %r", pattern)
+        raise ValueError(f"unsafe pkill pattern: {pattern!r}")
+    _log.info("pkill in %s: %s", container, pattern)
+    return container.exec_run(f"pkill -f '{pattern}'", stdout=True, stderr=True, demux=False)
+
+
+def _safe_pkill_in(container, pattern):
+    """Same as _safe_pkill but discards the return value (fire-and-forget)."""
+    _safe_pkill(container, pattern)
 
 # ============================================================
 # Configuration (env-overridable; defaults match the lab setup).
@@ -26,18 +66,168 @@ UR_MAX_DELTA = float(os.getenv("UR_MAX_DELTA", "0.5"))        # max |delta| per 
 UR_STOP_TIMEOUT = int(os.getenv("UR_STOP_TIMEOUT", "10"))     # ur_stop.sh hard timeout (s)
 
 
-AUTH_USER = os.getenv("AUTH_USER", "admin")
+# ============================================================
+# Multi-user profiles + auth.
+# Each user is a YAML file /app/data/profiles/<username>.yaml:
+#   username, password (pbkdf2), role (user|admin), nodes: [...], settings: {}
+# Passwords hashed with stdlib pbkdf2 (no bcrypt -> no aarch64 wheel issues).
+# Tokens are in-memory (a mir_ui restart logs everyone out; fine for a LAN tool).
+# ============================================================
+AUTH_USER = os.getenv("AUTH_USER", "admin")   # only used to seed the initial admin
 AUTH_PASS = os.getenv("AUTH_PASS", "admin")
-AUTH_TOKEN = os.getenv("AUTH_TOKEN", "mir-suite-session-token")
+WAEL_PASS = os.getenv("WAEL_PASS", "wael")     # seed user wael, change in production
+PABLO_PASS = os.getenv("PABLO_PASS", "pablo")   # seed user pablo, change in production
+PROFILES_DIR = os.getenv("PROFILES_DIR", "/app/data/profiles")
+
+_profiles_lock = threading.Lock()
+_profiles: dict = {}   # username -> user dict
+_tokens: dict = {}     # token -> {"user", "role", "ts"}
+
+
+def _hash_password(pw: str, salt: bytes = None) -> str:
+    salt = salt or secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 200_000)
+    return f"pbkdf2_sha256$200000${salt.hex()}${dk.hex()}"
+
+
+def _verify_password(pw: str, stored: str) -> bool:
+    try:
+        _algo, iters, salt_hex, hash_hex = stored.split("$")
+        dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt_hex), int(iters))
+        return hmac.compare_digest(dk.hex(), hash_hex)
+    except Exception:
+        return False
+
+
+def _save_profile(user: dict) -> None:
+    os.makedirs(PROFILES_DIR, exist_ok=True)
+    path = os.path.join(PROFILES_DIR, f"{user['username']}.yaml")
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        yaml.safe_dump(user, f, default_flow_style=False, sort_keys=False)
+    os.replace(tmp, path)   # atomic
+
+
+def _load_profiles() -> None:
+    _profiles.clear()
+    for path in glob.glob(os.path.join(PROFILES_DIR, "*.yaml")):
+        try:
+            with open(path) as f:
+                u = yaml.safe_load(f) or {}
+            if u.get("username"):
+                u.setdefault("role", "user")
+                u.setdefault("nodes", [])
+                u.setdefault("settings", {})
+                _profiles[u["username"]] = u
+        except Exception:
+            continue
+
+
+def _seed_profiles() -> None:
+    """First run: seed admin (from env) + wael + pablo, all with empty node sets."""
+    seeds = (
+        ("admin", AUTH_PASS, "admin"),
+        ("wael", WAEL_PASS, "user"),
+        ("pablo", PABLO_PASS, "user"),
+    )
+    for username, pw, role in seeds:
+        if username not in _profiles:
+            _profiles[username] = {"username": username, "password": _hash_password(pw),
+                                   "role": role, "nodes": [], "settings": {}}
+            _save_profile(_profiles[username])
+    _log_default_passwords(seeds)
+
+
+def _log_default_passwords(seeds):
+    """Warn once at boot if any seed account still uses its factory password."""
+    factory_defaults = {"admin": "admin", "wael": "wael", "pablo": "pablo"}
+    env_pass_by_user = {
+        "admin": os.getenv("AUTH_PASS", "admin"),
+        "wael":  os.getenv("WAEL_PASS", "wael"),
+        "pablo": os.getenv("PABLO_PASS", "pablo"),
+    }
+    bad = [u for (u, pw, _role) in seeds if env_pass_by_user.get(u) == factory_defaults.get(u)]
+    if bad:
+        import logging
+        logging.getLogger("mir_ui").warning(
+            "DEFAULT SEED PASSWORDS IN USE for: %s. "
+            "Override AUTH_PASS/WAEL_PASS/PABLO_PASS in config/.env before production.",
+            ", ".join(bad),
+        )
+
+
+with _profiles_lock:
+    _load_profiles()
+    _seed_profiles()
+
+
+# Tokens expire after TOKEN_TTL seconds. _resolve_token evicts expired entries
+# lazily on access; _token_cleanup_task runs every hour to evict long-idle
+# tokens (memory hygiene: prevents _tokens from growing unbounded).
+# Configurable in config/.env (TOKEN_TTL, default 24h).
+TOKEN_TTL = int(os.getenv("TOKEN_TTL", "86400"))
+
+
+def _issue_token(username: str, role: str) -> str:
+    t = secrets.token_urlsafe(32)
+    _tokens[t] = {"user": username, "role": role, "ts": time.time(),
+                  "expires": time.time() + TOKEN_TTL}
+    return t
+
+
+def _resolve_token(t):
+    if not t:
+        return None
+    sess = _tokens.get(t)
+    if sess is None:
+        return None
+    if time.time() > sess.get("expires", 0):
+        # Expired — evict and reject. The lazy eviction also prevents a tight
+        # retry loop from re-evicting every time (pop is idempotent).
+        _tokens.pop(t, None)
+        return None
+    return sess
+
+
+async def _token_cleanup_task():
+    """Hourly background sweep: drop expired tokens. The lazy eviction in
+    _resolve_token catches tokens on access, but idle tokens (user logged in
+    then closed the browser) would otherwise pile up forever."""
+    while True:
+        try:
+            await asyncio.sleep(3600)
+            now = time.time()
+            expired = [k for k, v in list(_tokens.items()) if now > v.get("expires", 0)]
+            for k in expired:
+                _tokens.pop(k, None)
+            if expired:
+                _log.info("token cleanup: removed %d expired token(s)", len(expired))
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            _log.warning("token cleanup error: %s", e)
+
+
+def _public_profile(user: dict) -> dict:
+    return {"username": user["username"], "role": user.get("role", "user"),
+            "config": {"nodes": user.get("nodes", []), "settings": user.get("settings", {})}}
 
 
 @app.middleware("http")
 async def _auth_gate(request: Request, call_next):
     path = request.url.path
     if path.startswith("/api/") and path != "/api/login":
-        if request.headers.get("X-MIR-Token") != AUTH_TOKEN:
+        sess = _resolve_token(request.headers.get("X-MIR-Token"))
+        if sess is None:
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        request.state.user = sess["user"]
+        request.state.role = sess["role"]
     return await call_next(request)
+
+
+def _require_admin(request: Request):
+    if getattr(request.state, "role", None) != "admin":
+        raise HTTPException(403, "admin only")
 
 
 class LoginRequest(BaseModel):
@@ -45,11 +235,90 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ConfigRequest(BaseModel):
+    nodes: list[str] = []
+    settings: dict = {}
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: Literal["user", "admin"] = "user"
+
+
 @app.post("/api/login")
 async def login(body: LoginRequest):
-    if body.username == AUTH_USER and body.password == AUTH_PASS:
-        return {"token": AUTH_TOKEN}
+    user = _profiles.get(body.username)
+    if user and _verify_password(body.password, user["password"]):
+        token = _issue_token(user["username"], user.get("role", "user"))
+        return {"token": token, **_public_profile(user)}
     raise HTTPException(401, "invalid credentials")
+
+
+@app.post("/api/logout")
+async def logout(request: Request):
+    _tokens.pop(request.headers.get("X-MIR-Token"), None)
+    return {"status": "ok"}
+
+
+@app.get("/api/me")
+async def me(request: Request):
+    user = _profiles.get(request.state.user)
+    if not user:
+        raise HTTPException(404, "profile not found")
+    return _public_profile(user)
+
+
+@app.put("/api/me/config")
+async def save_my_config(body: ConfigRequest, request: Request):
+    with _profiles_lock:
+        user = _profiles.get(request.state.user)
+        if not user:
+            raise HTTPException(404, "profile not found")
+        user["nodes"] = [n for n in body.nodes if n in NODES]
+        user["settings"] = dict(body.settings)
+        _save_profile(user)
+    return _public_profile(user)
+
+
+@app.post("/api/me/apply")
+async def apply_my_nodes(request: Request):
+    """Start every node in the current user's saved config (auto-start on login)."""
+    user = _profiles.get(request.state.user)
+    if not user:
+        raise HTTPException(404, "profile not found")
+    started, errors = [], []
+    for node_id in user.get("nodes", []):
+        if node_id in NODES:
+            try:
+                await asyncio.to_thread(_node_start, node_id)
+                started.append(node_id)
+            except Exception as e:
+                errors.append({"node": node_id, "error": str(e)})
+    return {"status": "ok", "started": started, "errors": errors}
+
+
+@app.get("/api/users")
+async def list_users(request: Request):
+    _require_admin(request)
+    return {"users": [{"username": u["username"], "role": u.get("role", "user")}
+                      for u in _profiles.values()]}
+
+
+@app.post("/api/users")
+async def create_user(body: CreateUserRequest, request: Request):
+    _require_admin(request)
+    uname = body.username.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,32}", uname):
+        raise HTTPException(422, "invalid username (allowed: A-Z a-z 0-9 _ . -)")
+    with _profiles_lock:
+        if uname in _profiles:
+            raise HTTPException(409, "user already exists")
+        user = {"username": uname, "password": _hash_password(body.password),
+                "role": body.role, "nodes": [], "settings": {}}
+        _profiles[uname] = user
+        _save_profile(user)
+    return {"status": "ok", "username": uname, "role": body.role}
 
 # ============================================================
 # Docker service management (requires /var/run/docker.sock)
@@ -61,27 +330,24 @@ except Exception:
     docker_client = None
 
 
-UR_CONTAINER_OVERRIDE = os.environ.get("UR_CONTAINER")
-_UR_CONTAINER_CANDIDATES = ("mir_ur_driver", "mir_ur_driver_sim")
+# Each UR container declares its own identity via UR_CONTAINER env var (set in
+# docker-compose.yml). The backend uses it verbatim — no autodetection, no
+# hardcoded priority. This makes the system predictable: the container that
+# is running and declares itself is the one that gets used. If neither is
+# running, we default to "mir_ur_driver" (the real one) and let the API
+# surface a clear "container not running" error.
+UR_CONTAINER = os.environ.get("UR_CONTAINER", "mir_ur_driver")
 
 
 def _ur_container_name() -> str:
-    if UR_CONTAINER_OVERRIDE:
-        return UR_CONTAINER_OVERRIDE
-    if docker_client is not None:
-        for name in _UR_CONTAINER_CANDIDATES:
-            try:
-                if docker_client.containers.get(name).status == "running":
-                    return name
-            except Exception:
-                continue
-    return "mir_ur_driver"
+    return UR_CONTAINER
 
 MIR_SERVICES = {
     "mir_ui":       {"label": "Web UI",        "profiles": ["always"]},
     "mir_mir":      {"label": "MiR Bridge",     "profiles": ["always"]},
     "mir_camera":   {"label": "Camera",         "profiles": ["vision", "full"]},
-    "mir_ur_driver": {"label": "UR5e Driver",   "profiles": ["arms", "full"]},
+    "mir_ur_driver":     {"label": "UR5e Driver (real)", "profiles": ["arms", "full"]},
+    "mir_ur_driver_sim": {"label": "UR5e Driver (sim)",  "profiles": ["sim"]},
 }
 
 @app.get("/api/containers")
@@ -289,7 +555,7 @@ def _run_freedrive(arm: str, enable: bool) -> dict:
         return {"status": "ok", "arm": arm, "freedrive": True}
 
     # disable
-    sh(f"pkill -f '{kill_pat}'")
+    _safe_pkill_in(c, kill_pat)
     sh(f"timeout 3 ros2 topic pub -1 {topic} std_msgs/msg/Bool '{{data: false}}'")
     code, out = sh(f"timeout 10 ros2 control switch_controllers --deactivate {fd} --activate {jtc}")
     if code != 0:
@@ -406,6 +672,242 @@ async def ur_freedrive(body: FreedriveRequest):
     return await asyncio.to_thread(_run_freedrive, body.arm, body.enable)
 
 
+# ============================================================
+# Node launcher — individual ROS nodes/processes (data-driven registry).
+# Container-level control is /api/containers/*; this is per-node inside a container.
+# ============================================================
+# start_cmd is the BARE command; _node_start wraps it with a bash -c that sources
+# ROS + the workspace overlay, nohup-backgrounds it, and redirects to `log`.
+NODES = {
+    "ur_driver": {
+        "label": "UR5e Driver (duo_ur)",
+        "container": _ur_container_name,
+        "pgrep": "[d]uo_ur_real",
+        "start_cmd": "bash /ur_start.sh",
+        "log": "/var/log/mir/ur_start.log",
+        "stop": {"kind": "script", "path": "/ur_stop.sh", "timeout": UR_STOP_TIMEOUT},
+    },
+    "touch_real": {
+        "label": "Touch Hands (real)",
+        "container": _ur_container_name,
+        "pgrep": "[t]ouch_sensor_node.py --ports",
+        "start_cmd": "python3 /touch_sensor_node.py --ports /dev/ttyUSB0:left /dev/ttyUSB1:right",
+        "log": "/var/log/mir/touch.log",
+        "stop": {"kind": "pkill", "pattern": "touch_sensor_node.py --ports"},
+    },
+    "hand_real": {
+        "label": "Hand Control (real)",
+        "container": _ur_container_name,
+        "pgrep": "[h]and_control_node.py --ports",
+        "start_cmd": "python3 /hand_control_node.py --ports /dev/ttyUSB0:left /dev/ttyUSB1:right",
+        "log": "/var/log/mir/hand_control.log",
+        "stop": {"kind": "pkill", "pattern": "hand_control_node.py --ports"},
+    },
+    "rosbag": {
+        "label": "Record rosbag (all topics)",
+        "container": _ur_container_name,
+        "pgrep": "[r]os2 bag record",
+        # $(date ...) is evaluated by the bash -c wrapper -> a fresh timestamped bag each run.
+        "start_cmd": "ros2 bag record -a -o /var/log/mir/bag_$(date +%Y%m%d_%H%M%S)",
+        "log": "/var/log/mir/rosbag.log",
+        "stop": {"kind": "pkill", "pattern": "ros2 bag record"},  # SIGTERM closes the bag cleanly
+    },
+    # Camera is on-demand (single USB device -> two mutually-exclusive variants).
+    # pgrep keys on the enable_depth arg so status tells color vs depth apart.
+    "camera_color": {
+        "label": "Camera (color)",
+        "container": "mir_camera",
+        "pgrep": "[e]nable_depth:=false",
+        "start_cmd": ("ros2 launch orbbec_camera gemini_330_series.launch.py "
+                      "color_width:=480 color_height:=270 color_fps:=30 time_domain:=device enable_depth:=false"),
+        "log": "/var/log/mir/camera.log",
+        "stop": {"kind": "pkill", "pattern": "orbbec"},
+    },
+    "camera_depth": {
+        "label": "Camera (color + depth + cloud)",
+        "container": "mir_camera",
+        "pgrep": "[e]nable_depth:=true",
+        "start_cmd": ("ros2 launch orbbec_camera gemini_330_series.launch.py "
+                      "color_width:=480 color_height:=270 color_fps:=30 time_domain:=device "
+                      "enable_depth:=true depth_registration:=true enable_colored_point_cloud:=true"),
+        "log": "/var/log/mir/camera.log",
+        "stop": {"kind": "pkill", "pattern": "orbbec"},
+    },
+}
+
+
+# Read-only infrastructure processes (started at container boot; shown as status
+# only — no start/stop, since the UI depends on them / a watchdog owns them).
+SYSTEM = {
+    "rosbridge":     {"label": "rosbridge (:9090)", "container": _ur_container_name, "pgrep": "[r]osbridge_websocket"},
+    "joint_server":  {"label": "Joint server",      "container": _ur_container_name, "pgrep": "[j]oint_server.py"},
+    "action_bridge": {"label": "Action bridge",     "container": _ur_container_name, "pgrep": "[a]ction_bridge.py"},
+    "mir_bridge":    {"label": "MiR bridge",         "container": "mir_mir",          "pgrep": "[m]ir_raw.py"},
+}
+
+
+def _node_container(node: dict) -> str:
+    cn = node["container"]
+    return cn() if callable(cn) else cn
+
+
+def _pgrep(container_name: str, pattern: str) -> bool:
+    """True if a process matching `pattern` is running in `container_name`."""
+    if docker_client is None:
+        return False
+    try:
+        c = docker_client.containers.get(container_name)
+        if c.status != "running":
+            return False
+        r = c.exec_run(f"bash -c 'pgrep -f \"{pattern}\" | head -1'", stdout=True, stderr=True, demux=False)
+        out = r.output.decode("utf-8", "replace").strip() if isinstance(r.output, bytes) else str(r.output or "").strip()
+        return r.exit_code == 0 and len(out) > 0
+    except Exception:
+        return False
+
+
+# Per-node-id start/stop locks. Prevents the TOCTOU race where two concurrent
+# clicks (or two overlapping apply-my-nodes calls) both see "not running",
+# both spawn the process, and end up with two of them. Each node gets its own
+# lock so unrelated nodes don't serialize. The lock is held for the duration
+# of the pgrep-check + exec_run-spawn — i.e. a few hundred ms at most. This
+# is the Python-side guard; ur_start.sh also has a flock for defense in depth
+# (protects against SSH/manual invocation racing the backend).
+_node_locks: dict = {}
+_node_locks_lock = threading.Lock()
+
+
+def _get_node_lock(node_id: str) -> threading.Lock:
+    with _node_locks_lock:
+        if node_id not in _node_locks:
+            _node_locks[node_id] = threading.Lock()
+        return _node_locks[node_id]
+
+
+def _node_status(node_id: str) -> bool:
+    node = NODES[node_id]
+    return _pgrep(_node_container(node), node["pgrep"])
+
+
+def _node_start(node_id: str) -> bool:
+    node = NODES[node_id]
+    if docker_client is None:
+        raise HTTPException(503, "docker not available")
+    # Per-node lock prevents two concurrent /api/nodes/{id}/start calls (e.g. a
+    # double-click) from both passing the pgrep "not running" check and both
+    # spawning the process. Held only for the duration of the check + spawn,
+    # never across a blocking call.
+    with _get_node_lock(node_id):
+        return _node_start_locked(node_id, node)
+
+
+def _node_start_locked(node_id: str, node: dict) -> bool:
+    c = docker_client.containers.get(_node_container(node))
+    if c.status != "running":
+        raise HTTPException(400, f"{c.name} not running")
+    # Idempotent: don't spawn a duplicate if it's already running (auto-start on
+    # login can fire repeatedly; ur_start.sh self-guards, the touch node does not).
+    r = c.exec_run(f"bash -c 'pgrep -f \"{node['pgrep']}\" | head -1'", stdout=True, stderr=True, demux=False)
+    out = r.output.decode("utf-8", "replace").strip() if isinstance(r.output, bytes) else str(r.output or "").strip()
+    if r.exit_code == 0 and out:
+        return True
+    # List-form bash -c guarantees the redirect/& and ROS sourcing are interpreted
+    # (a string cmd would NOT go through a shell — args leak to the program).
+    log = node.get("log", f"/var/log/mir/{node_id}.log")
+    full = ("source /opt/ros/humble/setup.bash && "
+            "source /root/workspace/ros_ws/install/setup.bash 2>/dev/null && "
+            f"nohup {node['start_cmd']} > {log} 2>&1 &")
+    c.exec_run(["bash", "-c", full], detach=True)
+    return True
+
+
+def _node_stop(node_id: str) -> bool:
+    node = NODES[node_id]
+    if docker_client is None:
+        raise HTTPException(503, "docker not available")
+    # Same per-node lock as _node_start: prevents start/stop races (e.g. a
+    # stop issued while a start is in flight).
+    with _get_node_lock(node_id):
+        return _node_stop_locked(node_id, node)
+
+
+def _node_stop_locked(node_id: str, node: dict) -> bool:
+    c = docker_client.containers.get(_node_container(node))
+    if c.status != "running":
+        raise HTTPException(400, f"{c.name} not running")
+    stop = node["stop"]
+    if stop["kind"] == "script":
+        c.exec_run(f"timeout {stop.get('timeout', 10)} bash {stop['path']}", stdout=True, stderr=True)
+    else:
+        try:
+            _safe_pkill(c, stop["pattern"])
+        except ValueError as ve:
+            raise HTTPException(500, str(ve))
+    return True
+
+
+@app.get("/api/nodes")
+async def list_nodes():
+    result = []
+    for node_id, node in NODES.items():
+        running = await asyncio.to_thread(_node_status, node_id)
+        result.append({"id": node_id, "label": node["label"],
+                       "container": _node_container(node), "running": running})
+    return {"nodes": result}
+
+
+@app.get("/api/system")
+async def list_system():
+    """Read-only status of the always-on infrastructure processes."""
+    result = []
+    for sid, s in SYSTEM.items():
+        cname = s["container"]() if callable(s["container"]) else s["container"]
+        running = await asyncio.to_thread(_pgrep, cname, s["pgrep"])
+        result.append({"id": sid, "label": s["label"], "running": running})
+    return {"system": result}
+
+
+@app.post("/api/nodes/{node_id}/start")
+async def node_start_ep(node_id: str):
+    if node_id not in NODES:
+        raise HTTPException(404, f"unknown node: {node_id}")
+    await asyncio.to_thread(_node_start, node_id)
+    return {"status": "ok", "action": "starting", "id": node_id}
+
+
+@app.post("/api/nodes/{node_id}/stop")
+async def node_stop_ep(node_id: str):
+    if node_id not in NODES:
+        raise HTTPException(404, f"unknown node: {node_id}")
+    await asyncio.to_thread(_node_stop, node_id)
+    return {"status": "ok", "action": "stopping", "id": node_id}
+
+
+def _node_tail(node_id: str, lines: int) -> str:
+    node = NODES[node_id]
+    log = node.get("log", f"/var/log/mir/{node_id}.log")
+    if docker_client is None:
+        return "docker not available"
+    try:
+        c = docker_client.containers.get(_node_container(node))
+        if c.status != "running":
+            return f"(container {c.name} not running)"
+        r = c.exec_run(f"bash -c 'tail -n {lines} {log} 2>/dev/null || echo no-log-yet'",
+                       stdout=True, stderr=True, demux=False)
+        return r.output.decode("utf-8", "replace") if isinstance(r.output, bytes) else str(r.output or "")
+    except Exception as e:
+        return f"(error reading log: {e})"
+
+
+@app.get("/api/nodes/{node_id}/logs")
+async def node_logs(node_id: str, lines: int = 200):
+    if node_id not in NODES:
+        raise HTTPException(404, f"unknown node: {node_id}")
+    lines = max(1, min(1000, lines))
+    text = await asyncio.to_thread(_node_tail, node_id, lines)
+    return {"id": node_id, "log": NODES[node_id].get("log"), "text": text}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "MIR_Suite"}
@@ -493,6 +995,152 @@ def _format_mir_status(data):
         "map_id": data.get("map_id", ""),
     }
 
+
+
+# ============================================================
+# In-UI terminal — a WebSocket bridged to an interactive `docker exec bash` (tty).
+# The http auth middleware does NOT run for websockets, so we auth here via a
+# query-param token (WS handshakes can't set the X-MIR-Token header). Full shell +
+# docker.sock ~= host root, so gate to admin. UI is login-gated on a local network.
+# ============================================================
+TERM_ALLOWED = {"mir_ur_driver", "mir_ur_driver_sim", "mir_mir", "mir_camera"}
+
+
+@app.websocket("/api/term")
+async def term_ws(ws: WebSocket):
+    sess = _resolve_token(ws.query_params.get("token"))
+    if sess is None or sess.get("role") != "admin":
+        await ws.close(code=4401)
+        return
+    cname = ws.query_params.get("container") or _ur_container_name()
+    if cname not in TERM_ALLOWED:
+        await ws.close(code=4404)
+        return
+    if docker_client is None:
+        await ws.close(code=4503)
+        return
+    await ws.accept()
+    api = docker_client.api
+    try:
+        exec_id = api.exec_create(cname, ["bash"], tty=True, stdin=True, stdout=True, stderr=True)["Id"]
+        sock = api.exec_start(exec_id, socket=True, tty=True)
+        raw = sock._sock  # underlying socket for raw read/write
+    except Exception as e:
+        try:
+            await ws.send_text(f"\r\n[failed to open shell in {cname}: {e}]\r\n")
+        finally:
+            await ws.close()
+        return
+
+    async def pump_out():  # container -> browser (blocking recv off the loop)
+        try:
+            while True:
+                data = await asyncio.to_thread(raw.recv, 4096)
+                if not data:
+                    break
+                await ws.send_bytes(data)
+        except Exception:
+            pass
+
+    out_task = asyncio.create_task(pump_out())
+    try:
+        while True:
+            msg = await ws.receive()
+            if msg.get("type") == "websocket.disconnect":
+                break
+            if msg.get("bytes") is not None:
+                await asyncio.to_thread(raw.sendall, msg["bytes"])
+            elif msg.get("text") is not None:
+                try:
+                    ev = json.loads(msg["text"])
+                except Exception:
+                    ev = None
+                if isinstance(ev, dict) and ev.get("type") == "resize":
+                    try:
+                        api.exec_resize(exec_id, height=int(ev["rows"]), width=int(ev["cols"]))
+                    except Exception:
+                        pass
+                else:
+                    await asyncio.to_thread(raw.sendall, msg["text"].encode())
+    except Exception:
+        pass
+    finally:
+        out_task.cancel()
+        try:
+            raw.close()
+        except Exception:
+            pass
+
+
+# ============================================================
+# Nordbo force/torque sensors (NRS-ETH, model NRS-6200). OUR OWN reader of the
+# sensor's native WebSocket (ws://<ip>:2003): send {"cmd":"START_TRANSMISSION"},
+# then read 48-byte binary frames = 6 little-endian doubles [Fx,Fy,Fz,Tx,Ty,Tz].
+# (Nordbo's ROS node uses an old TCP protocol this firmware ignores, so we skip it.)
+# ============================================================
+import struct as _struct
+try:
+    import websockets as _ws
+except Exception:
+    _ws = None
+
+NORDBO_SENSORS = {
+    "left":  os.getenv("NORDBO_LEFT_IP", "192.168.1.112"),
+    "right": os.getenv("NORDBO_RIGHT_IP", "192.168.1.113"),
+}
+NORDBO_PORT = int(os.getenv("NORDBO_PORT", "2003"))
+
+_force = {side: {"connected": False, "fx": 0.0, "fy": 0.0, "fz": 0.0,
+                 "tx": 0.0, "ty": 0.0, "tz": 0.0} for side in NORDBO_SENSORS}
+_tare_req = {side: False for side in NORDBO_SENSORS}
+
+
+async def _nordbo_reader(side, ip):
+    url = f"ws://{ip}:{NORDBO_PORT}"
+    while True:
+        if _ws is None:
+            await asyncio.sleep(10)
+            continue
+        try:
+            async with _ws.connect(url, open_timeout=5, ping_interval=None) as ws:
+                await ws.send('{"cmd": "START_TRANSMISSION"}')
+                _force[side]["connected"] = True
+                async for m in ws:
+                    if _tare_req[side]:
+                        _tare_req[side] = False
+                        try:
+                            await ws.send('{"cmd": "DO_TARE"}')
+                        except Exception:
+                            pass
+                    if isinstance(m, (bytes, bytearray)) and len(m) == 48:
+                        fx, fy, fz, tx, ty, tz = _struct.unpack("<6d", m)
+                        _force[side].update(fx=fx, fy=fy, fz=fz, tx=tx, ty=ty, tz=tz)
+        except Exception:
+            _force[side]["connected"] = False
+            await asyncio.sleep(3)  # reconnect backoff
+
+
+@app.on_event("startup")
+async def _start_nordbo():
+    for side, ip in NORDBO_SENSORS.items():
+        asyncio.create_task(_nordbo_reader(side, ip))
+    # Hourly token cleanup task — drops expired tokens to prevent unbounded
+    # growth of the in-memory _tokens dict. Lazy eviction in _resolve_token
+    # handles per-request cleanup; this is the bulk sweeper.
+    asyncio.create_task(_token_cleanup_task())
+
+
+@app.get("/api/force")
+async def force_status():
+    return {"sensors": {side: dict(_force[side]) for side in NORDBO_SENSORS}}
+
+
+@app.post("/api/force/{side}/tare")
+async def force_tare(side: str):
+    if side not in NORDBO_SENSORS:
+        raise HTTPException(404, "unknown sensor")
+    _tare_req[side] = True
+    return {"status": "ok", "side": side, "action": "tare"}
 
 
 app.mount("/", StaticFiles(directory="static", html=True), name="ui")

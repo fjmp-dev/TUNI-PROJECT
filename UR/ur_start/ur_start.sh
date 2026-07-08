@@ -9,6 +9,27 @@ set -e
 LOG=/var/log/mir/ur_driver.log
 mkdir -p $(dirname $LOG)
 
+# Cross-process lock (defense in depth with the Python threading.Lock in
+# _node_start). flock -n means "non-blocking": if another ur_start.sh is
+# already in the critical section, we exit 0 immediately and the caller
+# treats it as a no-op. The FD 200 is held open for the lifetime of the
+# script; when the script exits, the lock is released automatically by the
+# kernel. This protects against:
+#   - Two concurrent /api/nodes/ur_driver/start calls (one wins, one exits 0)
+#   - SSH'd-in manual invocation racing the backend
+#   - Multiple apply-my-nodes calls during login
+LOCKFILE=/tmp/ur_driver.lock
+LOCKFD=200
+# Open FD 200 to the lock file (create if missing). Using exec keeps the FD
+# open across the rest of the script; the trailing subshell below closes it
+# when the script exits.
+exec {LOCKFD}>$LOCKFILE
+if ! flock -n $LOCKFD; then
+    echo "[ur_start] another ur_start is already running (lock held on $LOCKFILE) — exiting"
+    exit 0
+fi
+trap "flock -u $LOCKFD 2>/dev/null || true" EXIT
+
 # If a duo_ur is already running, do nothing
 if pgrep -f "ros2 launch duo_ur" >/dev/null; then
     echo "[ur_start] a duo_ur is already running (PIDs: $(pgrep -f 'ros2 launch duo_ur' | tr '\n' ' '))"
@@ -20,6 +41,14 @@ source /root/workspace/ros_ws/install/setup.bash
 
 echo "[ur_start] $(date -Iseconds) launching duo_ur_real..." | tee -a $LOG
 
+# In the sim container UR_FAKE_HARDWARE=true -> mock hardware (no real arms needed),
+# so on-demand Start works there too. Real containers leave it unset (real RTDE).
+FAKE_ARG=""
+if [ "${UR_FAKE_HARDWARE:-false}" = "true" ]; then
+    FAKE_ARG="use_fake_hardware:=true"
+    echo "[ur_start] FAKE HARDWARE mode (UR_FAKE_HARDWARE=true)" | tee -a $LOG
+fi
+
 # Launch the driver in the background with output to the log.
 # CRITICAL: launch_dashboard_client:=true so the dashboard_client_node come up
 # (without them there are no services for recovery/protective stop release/clear errors)
@@ -28,6 +57,7 @@ nohup ros2 launch duo_ur duo_ur_real.launch.py \
     headless_mode:=true \
     launch_dashboard_client:=true \
     controller_spawner_timeout:=60 \
+    $FAKE_ARG \
     >> $LOG 2>&1 &
 
 UR_PID=$!
