@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
-from typing import Literal
+from typing import Literal, Optional
 import uvicorn
 import httpx
 import asyncio
@@ -118,7 +118,17 @@ def _load_profiles() -> None:
                 u.setdefault("role", "user")
                 u.setdefault("nodes", [])
                 u.setdefault("settings", {})
-                _profiles[u["username"]] = u
+                # Migration: profiles written before the can_control capability
+                # existed have no such key. Grandfather them in as True so current
+                # operators (wael/pablo) keep working, and persist the migration so
+                # this only runs once. New users are created with can_control=False
+                # (secure default) — an admin grants it explicitly.
+                if "can_control" not in u:
+                    u["can_control"] = True
+                    _profiles[u["username"]] = u
+                    _save_profile(u)
+                else:
+                    _profiles[u["username"]] = u
         except Exception:
             continue
 
@@ -132,8 +142,11 @@ def _seed_profiles() -> None:
     )
     for username, pw, role in seeds:
         if username not in _profiles:
+            # Seed accounts (admin + the two operators) get can_control=True so a
+            # fresh install is operable out of the box. admin is allowed regardless.
             _profiles[username] = {"username": username, "password": _hash_password(pw),
-                                   "role": role, "nodes": [], "settings": {}}
+                                   "role": role, "nodes": [], "settings": {},
+                                   "can_control": True}
             _save_profile(_profiles[username])
     _log_default_passwords(seeds)
 
@@ -210,7 +223,17 @@ async def _token_cleanup_task():
 
 def _public_profile(user: dict) -> dict:
     return {"username": user["username"], "role": user.get("role", "user"),
+            "can_control": bool(user.get("can_control", False)),
             "config": {"nodes": user.get("nodes", []), "settings": user.get("settings", {})}}
+
+
+def _can_control(username: str, role: str) -> bool:
+    """Admins may always actuate. A non-admin needs an explicit can_control flag
+    on their profile (default False for newly created users)."""
+    if role == "admin":
+        return True
+    user = _profiles.get(username)
+    return bool(user and user.get("can_control", False))
 
 
 @app.middleware("http")
@@ -230,6 +253,17 @@ def _require_admin(request: Request):
         raise HTTPException(403, "admin only")
 
 
+def _require_control(request: Request):
+    """Gate for endpoints that actuate hardware (move arms, start/stop the driver,
+    launch/stop nodes, start/stop containers). Admin always passes; a plain user
+    needs can_control=True on their profile. Read-only endpoints (status, joints,
+    camera feed, logs) stay open to any authenticated user."""
+    user = getattr(request.state, "user", None)
+    role = getattr(request.state, "role", None)
+    if not _can_control(user, role):
+        raise HTTPException(403, "control not allowed for this user")
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -244,6 +278,8 @@ class CreateUserRequest(BaseModel):
     username: str
     password: str
     role: Literal["user", "admin"] = "user"
+    # Secure default: new users cannot actuate the robot until an admin grants it.
+    can_control: bool = False
 
 
 @app.post("/api/login")
@@ -284,6 +320,7 @@ async def save_my_config(body: ConfigRequest, request: Request):
 @app.post("/api/me/apply")
 async def apply_my_nodes(request: Request):
     """Start every node in the current user's saved config (auto-start on login)."""
+    _require_control(request)
     user = _profiles.get(request.state.user)
     if not user:
         raise HTTPException(404, "profile not found")
@@ -301,7 +338,8 @@ async def apply_my_nodes(request: Request):
 @app.get("/api/users")
 async def list_users(request: Request):
     _require_admin(request)
-    return {"users": [{"username": u["username"], "role": u.get("role", "user")}
+    return {"users": [{"username": u["username"], "role": u.get("role", "user"),
+                       "can_control": bool(u.get("can_control", False))}
                       for u in _profiles.values()]}
 
 
@@ -315,10 +353,54 @@ async def create_user(body: CreateUserRequest, request: Request):
         if uname in _profiles:
             raise HTTPException(409, "user already exists")
         user = {"username": uname, "password": _hash_password(body.password),
-                "role": body.role, "nodes": [], "settings": {}}
+                "role": body.role, "nodes": [], "settings": {},
+                "can_control": bool(body.can_control)}
         _profiles[uname] = user
         _save_profile(user)
-    return {"status": "ok", "username": uname, "role": body.role}
+    return {"status": "ok", "username": uname, "role": body.role,
+            "can_control": bool(body.can_control)}
+
+
+class UpdateUserRequest(BaseModel):
+    role: Optional[str] = None
+    password: Optional[str] = None
+    can_control: Optional[bool] = None
+
+
+@app.put("/api/users/{username}")
+async def update_user(username: str, body: UpdateUserRequest, request: Request):
+    _require_admin(request)
+    with _profiles_lock:
+        if username not in _profiles:
+            raise HTTPException(404, "user not found")
+        user = _profiles[username]
+        if body.role is not None:
+            if body.role not in ("admin", "user"):
+                raise HTTPException(422, "role must be 'admin' or 'user'")
+            user["role"] = body.role
+        if body.password is not None:
+            user["password"] = _hash_password(body.password)
+        if body.can_control is not None:
+            user["can_control"] = bool(body.can_control)
+        _save_profile(user)
+    return {"status": "ok", "username": username, "role": user["role"],
+            "can_control": bool(user.get("can_control", False))}
+
+
+@app.delete("/api/users/{username}")
+async def delete_user(username: str, request: Request):
+    _require_admin(request)
+    with _profiles_lock:
+        if username not in _profiles:
+            raise HTTPException(404, "user not found")
+        if username == request.state.user:
+            raise HTTPException(400, "cannot delete yourself")
+        del _profiles[username]
+        _profiles_path = Path(__file__).parent / "data" / "profiles"
+        user_file = _profiles_path / f"{username}.yaml"
+        if user_file.exists():
+            user_file.unlink()
+    return {"status": "ok", "username": username}
 
 # ============================================================
 # Docker service management (requires /var/run/docker.sock)
@@ -340,6 +422,14 @@ UR_CONTAINER = os.environ.get("UR_CONTAINER", "mir_ur_driver")
 
 
 def _ur_container_name() -> str:
+    if docker_client is not None:
+        for name in ["mir_ur_driver", "mir_ur_driver_sim"]:
+            try:
+                c = docker_client.containers.get(name)
+                if c.status == "running":
+                    return name
+            except Exception:
+                pass
     return UR_CONTAINER
 
 MIR_SERVICES = {
@@ -359,6 +449,22 @@ def list_containers():
     result = []
     for svc_name, meta in MIR_SERVICES.items():
         container = next((c for c in containers if c.name == svc_name), None)
+        
+        # Add connection status for mir_mir (MiR Bridge)
+        extra_info = {}
+        if svc_name == "mir_mir" and container and container.status == "running":
+            # Check if MiR is reachable
+            try:
+                import subprocess
+                ping_result = subprocess.run(
+                    ["ping", "-c", "1", "-W", "1", MIR_HOST],
+                    capture_output=True,
+                    timeout=2
+                )
+                extra_info["mir_reachable"] = ping_result.returncode == 0
+            except Exception:
+                extra_info["mir_reachable"] = False
+        
         result.append({
             "name": svc_name,
             "label": meta["label"],
@@ -366,12 +472,14 @@ def list_containers():
             "running": container.status == "running" if container else False,
             "exists": container is not None,
             "status": container.status if container else "not created",
+            **extra_info,
         })
     return {"services": result}
 
 
 @app.post("/api/containers/{name}/start")
-def start_container(name: str):
+def start_container(name: str, request: Request):
+    _require_control(request)
     if docker_client is None:
         raise HTTPException(503, "Docker not available")
     if name not in MIR_SERVICES:
@@ -391,7 +499,8 @@ def start_container(name: str):
 
 
 @app.post("/api/containers/{name}/stop")
-def stop_container(name: str):
+def stop_container(name: str, request: Request):
+    _require_control(request)
     if docker_client is None:
         raise HTTPException(503, "Docker not available")
     if name not in MIR_SERVICES:
@@ -456,7 +565,8 @@ def ur_status():
 
 
 @app.post("/api/ur/start")
-def ur_start():
+def ur_start(request: Request):
+    _require_control(request)
     if docker_client is None:
         raise HTTPException(503, "docker not available")
     try:
@@ -475,7 +585,8 @@ def ur_start():
 
 
 @app.post("/api/ur/stop")
-def ur_stop():
+def ur_stop(request: Request):
+    _require_control(request)
     if docker_client is None:
         raise HTTPException(503, "docker not available")
     try:
@@ -619,14 +730,22 @@ def _run_move(arm: str, joint: str, delta: float) -> dict:
     _low = out.lower()
     _recoverable = any(s in _low for s in ("goal rejected", "controller not available", "timeout waiting", "no motion"))
     if r.exit_code != 0 and _recoverable:
-        _sp.run([
-            "docker", "exec", c.name,
-            "bash", "-c",
+        # NOTE: must go through docker-py (exec_run) like every other exec in this
+        # file — the mir_ui image has no `docker` CLI, so subprocess["docker",...]
+        # raised FileNotFoundError and surfaced as a bare 500 without ever running
+        # the recovery. The sleep gives the External Control program ~2s to
+        # reconnect the reverse interface after the resend before we retry.
+        recovery_script = (
             "source /opt/ros/humble/setup.bash && "
+            "source /root/workspace/ros_ws/install/setup.bash 2>/dev/null; "
             f"ros2 service call /{arm}_io_and_status_controller/resend_robot_program std_srvs/srv/Trigger '{{}}' >/dev/null 2>&1 && "
-            f"sleep 1 && "
+            f"sleep 3 && "
             f"ros2 control switch_controllers --activate {arm}_joint_trajectory_controller >/dev/null 2>&1"
-        ], timeout=10)
+        )
+        try:
+            c.exec_run(["bash", "-c", recovery_script], stdout=True, stderr=True, demux=False)
+        except Exception:
+            pass  # recovery is best-effort; fall through to the informative 500
         # Reintentar
         try:
             r2 = c.exec_run(cmd, stdout=True, stderr=True, demux=False)
@@ -645,6 +764,7 @@ def _run_move(arm: str, joint: str, delta: float) -> dict:
 
 @app.post("/api/ur/move")
 async def ur_move(req: Request):
+    _require_control(req)
     raw = await req.body()
     sanitized = re.sub(r':\s*\+', ': ', raw.decode("utf-8"))
     try:
@@ -657,7 +777,8 @@ async def ur_move(req: Request):
 
 
 @app.post("/api/ur/payload")
-async def ur_payload(body: PayloadRequest):
+async def ur_payload(body: PayloadRequest, request: Request):
+    _require_control(request)
     if docker_client is None:
         raise HTTPException(503, "docker not available")
     return await asyncio.to_thread(
@@ -666,7 +787,8 @@ async def ur_payload(body: PayloadRequest):
 
 
 @app.post("/api/ur/freedrive")
-async def ur_freedrive(body: FreedriveRequest):
+async def ur_freedrive(body: FreedriveRequest, request: Request):
+    _require_control(request)
     if docker_client is None:
         raise HTTPException(503, "docker not available")
     return await asyncio.to_thread(_run_freedrive, body.arm, body.enable)
@@ -687,14 +809,6 @@ NODES = {
         "log": "/var/log/mir/ur_start.log",
         "stop": {"kind": "script", "path": "/ur_stop.sh", "timeout": UR_STOP_TIMEOUT},
     },
-    "touch_real": {
-        "label": "Touch Hands (real)",
-        "container": _ur_container_name,
-        "pgrep": "[t]ouch_sensor_node.py --ports",
-        "start_cmd": "python3 /touch_sensor_node.py --ports /dev/ttyUSB0:left /dev/ttyUSB1:right",
-        "log": "/var/log/mir/touch.log",
-        "stop": {"kind": "pkill", "pattern": "touch_sensor_node.py --ports"},
-    },
     "hand_real": {
         "label": "Hand Control (real)",
         "container": _ur_container_name,
@@ -702,6 +816,15 @@ NODES = {
         "start_cmd": "python3 /hand_control_node.py --ports /dev/ttyUSB0:left /dev/ttyUSB1:right",
         "log": "/var/log/mir/hand_control.log",
         "stop": {"kind": "pkill", "pattern": "hand_control_node.py --ports"},
+    },
+    # Mock variant: logs commands + cycles a demo open/close, no hardware/SDK.
+    "hand_mock": {
+        "label": "Hand Control (mock)",
+        "container": _ur_container_name,
+        "pgrep": "[h]and_control_node.py --mock",
+        "start_cmd": "python3 /hand_control_node.py --mock",
+        "log": "/var/log/mir/hand_mock.log",
+        "stop": {"kind": "pkill", "pattern": "hand_control_node.py --mock"},
     },
     "rosbag": {
         "label": "Record rosbag (all topics)",
@@ -806,7 +929,7 @@ def _node_start_locked(node_id: str, node: dict) -> bool:
     if c.status != "running":
         raise HTTPException(400, f"{c.name} not running")
     # Idempotent: don't spawn a duplicate if it's already running (auto-start on
-    # login can fire repeatedly; ur_start.sh self-guards, the touch node does not).
+    # login can fire repeatedly; ur_start.sh self-guards, the node scripts do not).
     r = c.exec_run(f"bash -c 'pgrep -f \"{node['pgrep']}\" | head -1'", stdout=True, stderr=True, demux=False)
     out = r.output.decode("utf-8", "replace").strip() if isinstance(r.output, bytes) else str(r.output or "").strip()
     if r.exit_code == 0 and out:
@@ -868,7 +991,8 @@ async def list_system():
 
 
 @app.post("/api/nodes/{node_id}/start")
-async def node_start_ep(node_id: str):
+async def node_start_ep(node_id: str, request: Request):
+    _require_control(request)
     if node_id not in NODES:
         raise HTTPException(404, f"unknown node: {node_id}")
     await asyncio.to_thread(_node_start, node_id)
@@ -876,7 +1000,8 @@ async def node_start_ep(node_id: str):
 
 
 @app.post("/api/nodes/{node_id}/stop")
-async def node_stop_ep(node_id: str):
+async def node_stop_ep(node_id: str, request: Request):
+    _require_control(request)
     if node_id not in NODES:
         raise HTTPException(404, f"unknown node: {node_id}")
     await asyncio.to_thread(_node_stop, node_id)
@@ -1093,6 +1218,14 @@ NORDBO_PORT = int(os.getenv("NORDBO_PORT", "2003"))
 _force = {side: {"connected": False, "fx": 0.0, "fy": 0.0, "fz": 0.0,
                  "tx": 0.0, "ty": 0.0, "tz": 0.0} for side in NORDBO_SENSORS}
 _tare_req = {side: False for side in NORDBO_SENSORS}
+# Per-side pause flag: when True, the reader loop sleeps instead of (re)connecting.
+# Lets the user open the Nordbo sensor's native web UI (which also needs the
+# single WebSocket slot the sensor exposes on :2003). Set/cleared by the
+# /api/force/{disconnect,connect} endpoints below.
+_nordbo_paused = {side: False for side in NORDBO_SENSORS}
+# Reference to the live WebSocket so /api/force/disconnect can close it from
+# outside the reader task (the reader otherwise holds the only handle).
+_nordbo_ws = {side: None for side in NORDBO_SENSORS}
 
 
 async def _nordbo_reader(side, ip):
@@ -1101,22 +1234,30 @@ async def _nordbo_reader(side, ip):
         if _ws is None:
             await asyncio.sleep(10)
             continue
+        if _nordbo_paused[side]:
+            await asyncio.sleep(1)
+            continue
         try:
             async with _ws.connect(url, open_timeout=5, ping_interval=None) as ws:
-                await ws.send('{"cmd": "START_TRANSMISSION"}')
-                _force[side]["connected"] = True
-                async for m in ws:
-                    if _tare_req[side]:
-                        _tare_req[side] = False
-                        try:
-                            await ws.send('{"cmd": "DO_TARE"}')
-                        except Exception:
-                            pass
-                    if isinstance(m, (bytes, bytearray)) and len(m) == 48:
-                        fx, fy, fz, tx, ty, tz = _struct.unpack("<6d", m)
-                        _force[side].update(fx=fx, fy=fy, fz=fz, tx=tx, ty=ty, tz=tz)
+                _nordbo_ws[side] = ws
+                try:
+                    await ws.send('{"cmd": "START_TRANSMISSION"}')
+                    _force[side]["connected"] = True
+                    async for m in ws:
+                        if _tare_req[side]:
+                            _tare_req[side] = False
+                            try:
+                                await ws.send('{"cmd": "DO_TARE"}')
+                            except Exception:
+                                pass
+                        if isinstance(m, (bytes, bytearray)) and len(m) == 48:
+                            fx, fy, fz, tx, ty, tz = _struct.unpack("<6d", m)
+                            _force[side].update(fx=fx, fy=fy, fz=fz, tx=tx, ty=ty, tz=tz)
+                finally:
+                    _nordbo_ws[side] = None
         except Exception:
             _force[side]["connected"] = False
+            _nordbo_ws[side] = None
             await asyncio.sleep(3)  # reconnect backoff
 
 
@@ -1132,7 +1273,8 @@ async def _start_nordbo():
 
 @app.get("/api/force")
 async def force_status():
-    return {"sensors": {side: dict(_force[side]) for side in NORDBO_SENSORS}}
+    return {"sensors": {side: {**_force[side], "paused": _nordbo_paused[side]}
+                         for side in NORDBO_SENSORS}}
 
 
 @app.post("/api/force/{side}/tare")
@@ -1143,8 +1285,43 @@ async def force_tare(side: str):
     return {"status": "ok", "side": side, "action": "tare"}
 
 
+@app.post("/api/force/{side}/disconnect")
+async def force_disconnect(side: str):
+    """Pause the Nordbo reader for this side so the sensor's native web UI
+    (served on its own IP, port 80) can grab the single WebSocket slot. The
+    reader stops reconnecting until /api/force/{side}/connect is called."""
+    if side not in NORDBO_SENSORS:
+        raise HTTPException(404, "unknown sensor")
+    _nordbo_paused[side] = True
+    ws = _nordbo_ws.get(side)
+    if ws is not None:
+        try:
+            await ws.close()
+        except Exception as exc:
+            _log.debug("nordbo %s: close-on-disconnect raised %s", side, exc)
+    _force[side]["connected"] = False
+    _log.info("nordbo %s: reader paused (native UI can now connect)", side)
+    return {"status": "ok", "side": side, "action": "disconnect", "ip": NORDBO_SENSORS[side]}
+
+
+@app.post("/api/force/{side}/connect")
+async def force_connect(side: str):
+    """Resume the Nordbo reader for this side. The reader loop wakes on its
+    next 1s tick and reconnects."""
+    if side not in NORDBO_SENSORS:
+        raise HTTPException(404, "unknown sensor")
+    _nordbo_paused[side] = False
+    _log.info("nordbo %s: reader resumed", side)
+    return {"status": "ok", "side": side, "action": "connect"}
+
+
 app.mount("/", StaticFiles(directory="static", html=True), name="ui")
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("UI_PORT", "8080")))
+    # Behind the Caddy TLS proxy, bind loopback only (UI_BIND_HOST=127.0.0.1 in
+    # config/.env) so the plaintext HTTP port is NOT reachable from the LAN — only
+    # Caddy, on the same host, proxies to it over https. Defaults to 0.0.0.0 so a
+    # no-proxy/dev run still works.
+    uvicorn.run(app, host=os.getenv("UI_BIND_HOST", "0.0.0.0"),
+                port=int(os.getenv("UI_PORT", "8080")))

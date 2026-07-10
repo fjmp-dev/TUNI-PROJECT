@@ -30,6 +30,14 @@ trap "kill $WATCHDOG_PID $LIVENESS_PID 2>/dev/null" EXIT
 STARTED_FILE="${MIR_BRIDGE_STARTED:-/tmp/mir_bridge_started}"
 export MIR_BRIDGE_STARTED="$STARTED_FILE"
 
+# Scanner merger: fuses /f_scan + /b_scan into a single 360-degree /scan in
+# base_footprint (what SLAM consumes). Pure local-DDS node, independent of the
+# MiR connection, so it runs once outside the reconnect loop.
+echo "[mir] starting scanners_merger (/f_scan + /b_scan -> /scan)"
+python3 -u /scanners_merger.py 2>&1 | sed -u 's/^/[merger] /' &
+MERGER_PID=$!
+trap "kill $WATCHDOG_PID $LIVENESS_PID $MERGER_PID 2>/dev/null" EXIT
+
 # Reconnect with exponential backoff. A fixed fast retry hammers the MiR's
 # rosbridge (Tornado) with half-open connections and can WEDGE it, so repeated
 # quick failures back off (10 -> 20 -> 40 -> 60s cap). A connection that stayed
@@ -38,13 +46,12 @@ BACKOFF_MIN=${MIR_BACKOFF_MIN:-10}
 BACKOFF_MAX=${MIR_BACKOFF_MAX:-60}
 BACKOFF=$BACKOFF_MIN
 while true; do
-    echo "[mir] Connecting to MiR200 rosbridge at 192.168.1.13:9090..."
-    # Mark each (re)launch so the watchdog can grant a startup grace window:
-    # mir_raw.py spends ~25-30s discovering topic types before it republishes
-    # anything, so /odom (the liveness signal) is silent during that time.
+    echo "[mir] Connecting to MiR200 rosbridge at ${MIR_IP:-192.168.1.13}:9090..."
+    # Mark each (re)launch so the watchdog can grant a startup grace window
+    # (rosbridge handshake + topic listing before /odom starts flowing).
     date +%s > "$STARTED_FILE"
     _start=$(date +%s)
-    python3 -u /mir_raw.py 2>&1
+    python3 -u /mir_bridge.py 2>&1
     _ran=$(( $(date +%s) - _start ))
     if [ "$_ran" -ge 60 ]; then
         BACKOFF=$BACKOFF_MIN

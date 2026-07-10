@@ -131,7 +131,7 @@
   .joints-meta { font-size: 12px; color: var(--text); margin-bottom: 12px; }
   .muted { color: var(--muted); }
   .arms { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .arm-title { font-weight: 600; margin-bottom: 8px; color: #fff; }
+  .arm-title { font-weight: 600; margin-bottom: 8px; color: var(--heading); }
   .joint-grid { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; align-items: baseline; }
   .jname { color: var(--muted); font-size: 12px; }
   .jval { text-align: right; }

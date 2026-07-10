@@ -22,7 +22,7 @@ class JointSub(Node):
         from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPolicy
         qos = QoSProfile(
             depth=1,
-            durability=DurabilityPolicy.VOLATILE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
             reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
         )
@@ -82,8 +82,13 @@ def main():
     node = JointSub()
     t = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
     t.start()
-    srv = ThreadingHTTPServer(("0.0.0.0", 9091), Handler)
-    print("[joint_server] listening on :9091", flush=True)
+    # Bind to loopback ONLY. With network_mode: host, "0.0.0.0" would expose live
+    # joint telemetry of both arms to the whole LAN (192.168.1.0/24), unauthenticated
+    # and with Access-Control-Allow-Origin:*. The only consumers are the backend
+    # (http://localhost:9091) and joint_mover (127.0.0.1:9091) — both share the host
+    # loopback — so 127.0.0.1 keeps them working while removing the LAN exposure.
+    srv = ThreadingHTTPServer(("127.0.0.1", 9091), Handler)
+    print("[joint_server] listening on 127.0.0.1:9091", flush=True)
     srv.serve_forever()
 
 

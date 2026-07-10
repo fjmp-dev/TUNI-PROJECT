@@ -6,14 +6,14 @@ Subscribes to a topic the MiR publishes continuously even while in Pause
 watchdog reads that file's age to decide whether the bridge has gone "alive but
 mute".
 
-Why a dedicated node instead of watching mir_raw.py's stdout: the bridge node is
+Why a dedicated node instead of watching the bridge stdout: the bridge node is
 named 'rosbridge_explorer', so every line it logs contains "[rosbridge_explorer]:"
 and the old entrypoint filtered exactly those out -- meaning nothing refreshed the
 heartbeat during healthy operation and the watchdog killed a healthy bridge on a
-timer. This node measures the REAL end-to-end path (MiR rosbridge -> mir_raw.py ->
+timer. This node measures the REAL end-to-end path (MiR rosbridge -> mir_bridge.py ->
 ROS2), which is what we actually care about.
 
-This is our code (not Eemil's mir_raw.py). It only subscribes; it never commands
+This is our code. It only subscribes; it never commands
 the robot.
 """
 import os

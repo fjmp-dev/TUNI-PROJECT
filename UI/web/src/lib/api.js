@@ -42,6 +42,40 @@ async function request(path, { method = 'GET', body } = {}) {
 export const api = {
   login: (username, password) =>
     request('/api/login', { method: 'POST', body: { username, password } }),
+  logout: () => request('/api/logout', { method: 'POST' }),
+
+  // Profiles (multi-user)
+  me: () => request('/api/me'),
+  saveMyConfig: (nodes, settings) =>
+    request('/api/me/config', { method: 'PUT', body: { nodes, settings } }),
+  applyNodes: () => request('/api/me/apply', { method: 'POST' }),
+  listUsers: () => request('/api/users'),
+  createUser: (username, password, role, can_control = false) =>
+    request('/api/users', { method: 'POST', body: { username, password, role, can_control } }),
+  updateUser: (username, { role, password, can_control } = {}) =>
+    request(`/api/users/${username}`, { method: 'PUT', body: { role, password, can_control } }),
+  deleteUser: (username) =>
+    request(`/api/users/${username}`, { method: 'DELETE' }),
+
+  // Node launcher (individual nodes + whole containers) + read-only system status
+  listNodes: () => request('/api/nodes'),
+  listSystem: () => request('/api/system'),
+  nodeStart: (id) => request(`/api/nodes/${id}/start`, { method: 'POST' }),
+  nodeStop: (id) => request(`/api/nodes/${id}/stop`, { method: 'POST' }),
+  nodeLogs: (id, lines = 200) => request(`/api/nodes/${id}/logs?lines=${lines}`),
+  listContainers: () => request('/api/containers'),
+  containerStart: (name) => request(`/api/containers/${name}/start`, { method: 'POST' }),
+  containerStop: (name) => request(`/api/containers/${name}/stop`, { method: 'POST' }),
+
+  // Nordbo force/torque sensors (our own WebSocket reader in the backend)
+  force: () => request('/api/force'),
+  forceTare: (side) => request(`/api/force/${side}/tare`, { method: 'POST' }),
+  // Pause/resume the backend's Nordbo reader so the sensor's native web UI
+  // (port 80, served by the sensor itself) can grab the single WebSocket slot
+  // on :2003. Disconnect is reversible via forceConnect.
+  forceDisconnect: (side) => request(`/api/force/${side}/disconnect`, { method: 'POST' }),
+  forceConnect: (side) => request(`/api/force/${side}/connect`, { method: 'POST' }),
+
   mirStatus: () => request('/api/mir/status'),
   urStatus: () => request('/api/ur/status'),
   urJoints: () => request('/api/ur/joints'),

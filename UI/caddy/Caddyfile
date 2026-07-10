@@ -1,0 +1,36 @@
+# Reverse proxy that terminates TLS for the whole suite on :443 with our own
+# self-signed cert (config/tls/suite.crt|key). It fronts BOTH the UI/REST (uvicorn)
+# and rosbridge under ONE origin, so the browser only ever deals with one cert on
+# one port and everything is https/wss. uvicorn and rosbridge stay plain-HTTP on
+# loopback behind this proxy.
+{
+	# LAN only: no public CA / ACME. We bind our own cert on the site below.
+	auto_https disable_redirects
+	# Disable the admin API (no need for it; smaller attack surface).
+	admin off
+}
+
+# HTTPS on :443 for every LAN name/IP (matches tunisuite.local and 192.168.1.75).
+https:// {
+	tls /certs/suite.crt /certs/suite.key
+
+	# rosbridge: the browser opens wss://<host>/rosbridge. Strip the prefix and
+	# proxy to the plain-ws rosbridge on loopback. reverse_proxy handles the WS
+	# upgrade transparently.
+	@rosbridge path /rosbridge /rosbridge/*
+	handle @rosbridge {
+		uri strip_prefix /rosbridge
+		reverse_proxy 127.0.0.1:9090
+	}
+
+	# Everything else -> uvicorn: the UI static build, the REST API (/api/*), and
+	# the in-UI terminal WebSocket (/api/term). All same-origin.
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+}
+
+# Redirect plain http://:80 to https:// so old bookmarks still land on TLS.
+http:// {
+	redir https://{host}{uri} permanent
+}

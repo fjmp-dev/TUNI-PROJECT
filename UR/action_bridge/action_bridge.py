@@ -26,6 +26,29 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 from std_msgs.msg import String
 
+# Per-finger current ceiling for the BrainCo hand's CloseHand action. These are
+# the conservative defaults BrainCo/we use [thumb, thumb_aux, index, middle, ring,
+# pinky]; we treat them as a hard SAFETY CEILING so a command (which may arrive
+# over ROS from outside the UI) can never request MORE grip current/force than the
+# known-safe value — only equal or less. Raise a specific entry only after
+# validating the higher current on hardware.
+HAND_MAX_CURRENTS = [20, 20, 5, 5, 5, 5]
+
+
+def clamp_currents(vals):
+    """Coerce to exactly 6 non-negative ints, each capped at HAND_MAX_CURRENTS[i].
+    Any malformed / missing entry falls back to the safe default for that finger."""
+    out = []
+    for i in range(6):
+        ceiling = HAND_MAX_CURRENTS[i]
+        try:
+            v = int(vals[i])
+        except (TypeError, ValueError, IndexError):
+            v = ceiling
+        out.append(max(0, min(v, ceiling)))
+    return out
+
+
 # Safe right-arm joint configuration (fallback values).
 # Update /mir/config/right_safe_pose.json and restart the bridge to refresh.
 DEFAULT_RIGHT_SAFE_JOINTS = {
@@ -121,13 +144,15 @@ class ActionBridge(Node):
             return
 
         grasp = args.get('grasp_type', 'largediameter')
-        max_currents = args.get('max_currents', [20, 20, 5, 5, 5, 5])
+        # Bound the per-finger current to a safe ceiling — a caller (possibly over
+        # ROS from outside the UI) must never be able to command excessive grip force.
+        max_currents = clamp_currents(args.get('max_currents', HAND_MAX_CURRENTS))
 
         goal = CloseHand.Goal()
         goal.grasp_type = grasp
         goal.max_currents = max_currents
 
-        self.log(f'Closing hand: grasp={grasp}')
+        self.log(f'Closing hand: grasp={grasp} max_currents={max_currents}')
         self._close_hand_client.send_goal_async(goal).add_done_callback(
             lambda f: self._on_result(f, 'close_hand')
         )

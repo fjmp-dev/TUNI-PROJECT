@@ -41,7 +41,7 @@
     width: 100%; max-width: 320px; background: var(--panel); border: 1px solid var(--border);
     border-radius: 12px; padding: 28px 26px; display: flex; flex-direction: column; gap: 14px;
   }
-  h1 { font-size: 22px; color: #fff; }
+  h1 { font-size: 22px; color: var(--heading); }
   .sub { margin: -8px 0 6px; color: var(--muted); font-size: 13px; }
   label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
   input {

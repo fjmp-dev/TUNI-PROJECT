@@ -1,34 +1,42 @@
 #!/bin/bash
-# Entrypoint for mir_ur_driver_sim: launches duo_ur in fake-hardware mode so the
-# full endpoint chain (joints + move) can be exercised without real arms.
+# Entrypoint for mir_ur_driver_sim.
 #
-# The duo_ur launch file is provided PATCHED via a read-only overlay mount
-# (mir_suite/vendor/duo_ur/duo_ur_real.launch.py). We no longer sed Eemil's code:
-# his workspace stays pristine and our only change lives inside mir_suite/.
+# Boots ONLY the infrastructure (rosbridge + action_bridge + joint_server). The arm
+# driver is NOT auto-launched — it starts ON DEMAND (fake hardware) from the UI:
+#   /api/nodes/ur_driver/start  ->  ur_start.sh  (with UR_FAKE_HARDWARE=true)
+# This matches the real container (driver off until the user wants it).
+#
+# The duo_ur launch file is provided PATCHED via a read-only overlay mount so Eemil's
+# workspace stays pristine; the patch only kicks in when use_fake_hardware:=true.
 set -e
 source /opt/ros/humble/setup.bash
 source /root/workspace/ros_ws/install/setup.bash
 
 mkdir -p /var/log/mir
 
-echo "[sim] Launching duo_ur in FAKE HARDWARE mode..."
-ros2 launch duo_ur duo_ur_real.launch.py \
-    use_fake_hardware:=true \
-    launch_rviz:=false \
-    headless_mode:=true \
-    controller_spawner_timeout:=60 > /var/log/mir/sim_driver.log 2>&1 &
-
-echo "[sim] Waiting for move_group..."
-for i in $(seq 1 60); do
-    if ros2 node info /move_group >/dev/null 2>&1; then
-        ros2 param set /move_group use_sim_time false >/dev/null 2>&1 && \
-            echo "[sim] /move_group use_sim_time set to false" && break
-    fi
-    sleep 1
-done
-
-echo "[sim] Launching rosbridge on :9090..."
-ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090 > /var/log/mir/rosbridge.log 2>&1 &
+echo "[sim] Launching rosbridge on :9090 (locked to read-only whitelist)..."
+# SECURITY: the browser only SUBSCRIBES via rosbridge (camera); arm commands
+# go through the REST API (docker exec), never through rosbridge. So we deny all
+# services + actions and expose only the 3 subscribed topics. This stops anyone on
+# the LAN from commanding the arms over :9090 — which would otherwise bypass the UI
+# login AND the can_control gate. "[]" = empty whitelist = deny all; actions_glob is
+# wired in by the patched launch overlay (UR/rosbridge_hardening/).
+ROSBRIDGE_TOPICS="['/camera/color/image_raw/compressed']"
+# Behind the Caddy TLS proxy, bind rosbridge to loopback (ROSBRIDGE_ADDRESS=127.0.0.1)
+# so :9090 is not reachable from the LAN — Caddy proxies /rosbridge to it. Unset =
+# all interfaces (dev / no proxy).
+ADDR_ARG=""
+[ -n "${ROSBRIDGE_ADDRESS:-}" ] && ADDR_ARG="address:=${ROSBRIDGE_ADDRESS}"
+# The literal double-quotes around each value are REQUIRED: without them ros2
+# launch parses "[...]" as a STRING_ARRAY, but the node declares these globs as
+# STRING and crashes (InvalidParameterTypeException). Quoting forces string type.
+ros2 launch rosbridge_server rosbridge_websocket_launch.xml \
+    port:=9090 $ADDR_ARG \
+    "topics_glob:=\"$ROSBRIDGE_TOPICS\"" \
+    "services_glob:=\"[]\"" \
+    "actions_glob:=\"[]\"" \
+    "params_glob:=\"[]\"" \
+    > /var/log/mir/rosbridge.log 2>&1 &
 
 echo "[sim] Launching action_bridge..."
 python3 /action_bridge.py > /var/log/mir/action_bridge.log 2>&1 &
@@ -38,6 +46,6 @@ python3 /action_bridge.py > /var/log/mir/action_bridge.log 2>&1 &
 echo "[sim] Launching joint_server on :9091..."
 python3 /joint_server.py > /var/log/mir/joint_server.log 2>&1 &
 
-echo "[sim] Simulation ready (fake hardware)."
-trap "echo '[sim] detenido'; kill 0; exit 0" SIGTERM SIGINT
+echo "[sim] Infra ready. Arm driver is OFF — start it on demand from the UI."
+trap "echo '[sim] stopped'; kill 0; exit 0" SIGTERM SIGINT
 wait

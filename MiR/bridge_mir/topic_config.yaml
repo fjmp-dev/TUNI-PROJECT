@@ -1,0 +1,21 @@
+# Topics bridged between the MiR's rosbridge and our ROS 2 domain (mir_bridge.py).
+#   sub = MiR -> ROS 2   |   pub = ROS 2 -> MiR
+# Keep this list minimal: every extra topic adds DDS discovery/load on the shared
+# domain (the old mir_raw.py bridged EVERYTHING and wedged the UR driver's CM).
+# /robot_state was dropped vs Wael's upstream (needs a custom msg; the UI reads
+# state via the MiR REST API instead).
+topics:
+    - topic: "/cmd_vel"
+      pub/sub: "pub"
+    - topic: "/f_scan"
+      pub/sub: "sub"
+    - topic: "/b_scan"
+      pub/sub: "sub"
+    - topic: "/odom"
+      pub/sub: "sub"
+    - topic: "/tf"
+      pub/sub: "sub"
+    - topic: "/tf_static"
+      pub/sub: "sub"
+    - topic: "/MC/battery_percentage"
+      pub/sub: "sub"

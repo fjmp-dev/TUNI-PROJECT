@@ -1,22 +1,21 @@
 #!/bin/bash
-# Watchdog for the MiR ROS1->ROS2 bridge (mir_raw.py).
+# Watchdog for the MiR ROS1->ROS2 bridge (mir_bridge.py, Wael's selective bridge).
 #
 # Health signal: the heartbeat file refreshed by mir_liveness.py on every /odom
-# message. /odom flows ~3.5 Hz even while the MiR is in Pause, so a stale
-# heartbeat means the bridge is "alive but mute" -> restart it. We must not
-# modify Eemil's mir_raw.py, so we only kill it; the entrypoint relaunches.
+# message. /odom flows even while the MiR is in Pause, so a stale heartbeat
+# means the bridge is "alive but mute" -> kill it; the entrypoint relaunches it.
 #
 # Before restarting, probe the MiR's own rosbridge to log WHERE the hang is:
 #   - MiR rosbridge answers       -> our client died; restarting fixes it.
 #   - MiR rosbridge unresponsive  -> MiR-side hang; restart likely won't help,
 #     so we log it loudly (the MiR itself may need a restart).
 
-BRIDGE_PID=$(pgrep -f "[m]ir_raw.py" | head -1)
+BRIDGE_PID=$(pgrep -f "[m]ir_bridge.py" | head -1)
 [ -z "$BRIDGE_PID" ] && exit 0   # not running; the entrypoint will (re)start it
 
 NOW=$(date +%s)
 
-# Startup grace: mir_raw.py spends ~25-30s discovering topic types before it
+# Startup grace: the bridge needs a few seconds of handshake+subscribe before it
 # republishes anything, so /odom is silent during startup. Don't judge a freshly
 # (re)launched bridge as mute until it has had time to finish discovery -- killing
 # it mid-discovery is exactly the churn that wedges the MiR's own rosbridge.
@@ -37,11 +36,12 @@ AGE=$((NOW - LAST))
 # we only call it "unresponsive" if EVERY attempt fails.
 if python3 - <<'PY'
 import base64, os, socket, sys, time
+MIR_IP = os.getenv("MIR_IP", "192.168.1.13")
 def probe():
     try:
-        s = socket.create_connection(("192.168.1.13", 9090), timeout=4)
+        s = socket.create_connection((MIR_IP, 9090), timeout=4)
         key = base64.b64encode(os.urandom(16)).decode()
-        s.sendall((f"GET / HTTP/1.1\r\nHost: 192.168.1.13\r\nUpgrade: websocket\r\n"
+        s.sendall((f"GET / HTTP/1.1\r\nHost: {MIR_IP}\r\nUpgrade: websocket\r\n"
                    f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
                    f"Sec-WebSocket-Version: 13\r\n\r\n").encode())
         ok = b"101" in s.recv(1024)

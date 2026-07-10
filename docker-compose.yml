@@ -1,4 +1,18 @@
 services:
+  # TLS reverse proxy (always-on). Terminates https/wss on :443 with our self-signed
+  # cert and proxies to uvicorn (loopback:8080) and rosbridge (loopback:9090). The
+  # only component listening on the LAN in cleartext-free form. See UI/caddy/Caddyfile.
+  caddy:
+    image: caddy:2
+    container_name: mir_caddy
+    network_mode: host
+    volumes:
+      - ./UI/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./config/tls:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
   # Always-on service (no profile = always starts)
   mir_ui:
     build:
@@ -28,11 +42,24 @@ services:
     image: mir-camera:latest
     container_name: mir_camera
     network_mode: host
-    privileged: true
+    # Hardening: the Orbbec Gemini 335Lg (2bc5:080b) is a libusb device, so it only
+    # needs the USB bus tree + the USB char-device class — NOT `privileged` (which
+    # grants ALL host devices + kernel caps) and NOT the whole `/dev`. This mounts
+    # just /dev/bus/usb and allows character-major 189 (USB devices via libusb),
+    # which survives replug (device number changes, bus tree does not).
+    # NOTE: validate on hardware when the camera is free — if the Orbbec SDK's USB
+    # reset needs it, add `cap_add: [SYS_RAWIO]` rather than restoring `privileged`.
+    device_cgroup_rules:
+      - 'c 189:* rmw'
     volumes:
       - ./robot_workspace:/root/workspace
       - ./logs:/var/log/mir
-      - /dev:/dev
+      - /dev/bus/usb:/dev/bus/usb
+      # Shared host /dev/shm: FastDDS uses SHM transport between containers on
+      # host networking. Without this the other containers (rosbridge in the UR
+      # container) discover the camera topics but receive NO data — de-privileging
+      # removed the full /dev mount which used to provide it implicitly.
+      - /dev/shm:/dev/shm
       - ./PERIPHERAL/camera_orbbec/camera_entrypoint/camera_entrypoint.sh:/entrypoint.sh
     environment:
       - ROS_DOMAIN_ID=75
@@ -45,10 +72,20 @@ services:
     image: mir-mir:latest
     container_name: mir_mir
     network_mode: host
+    env_file:
+      - ./config/.env
     volumes:
       - ./robot_workspace:/root/workspace
       - ./logs:/var/log/mir
-      - ./MiR/bridge_mir/mir_raw.py:/mir_raw.py
+      # Shared host /dev/shm so FastDDS SHM transport works across containers
+      # (same rationale as the camera service — see that comment).
+      - /dev/shm:/dev/shm
+      # Selective MiR bridge (adopted from Wael's fortis-uc1-tau TK32): bridges only
+      # the whitelisted topics + /cmd_vel, replacing mir_raw.py (which bridged every
+      # MiR topic and overloaded the shared DDS domain).
+      - ./MiR/bridge_mir/mir_bridge.py:/mir_bridge.py
+      - ./MiR/bridge_mir/scanners_merger.py:/scanners_merger.py
+      - ./MiR/bridge_mir/topic_config.yaml:/mir_topic_config.yaml:ro
       - ./MiR/mir_entrypoint/mir_entrypoint.sh:/entrypoint.sh
       - ./MiR/mir_watchdog/mir_watchdog.sh:/mir_watchdog.sh
       - ./MiR/mir_liveness/mir_liveness.py:/mir_liveness.py
@@ -61,8 +98,29 @@ services:
     image: mir-ur-driver:latest
     container_name: mir_ur_driver
     network_mode: host
-    privileged: true
     profiles: [arms, full]
+    # Hardening: dropped `privileged: true` (which grants ALL host devices + all
+    # kernel caps + container-escape) in favour of the minimum this driver needs:
+    #   - arms talk RTDE over Ethernet (network_mode: host) — no device access.
+    #   - the BrainCo hands are USB-serial (/dev/ttyUSB*, char major 188); the
+    #     device_cgroup_rules below grant exactly that class (189 = USB/libusb kept
+    #     for defence). /dev is still mounted so the nodes are visible, but the
+    #     cgroup now gates access instead of privileged allowing everything.
+    #   - the UR ros2_control driver wants real-time scheduling + memory locking;
+    #     SYS_NICE + IPC_LOCK + the rtprio/memlock ulimits restore that without
+    #     privileged (otherwise it just warns and runs non-RT).
+    # NOTE: validate on hardware (arms + hands powered). If the arms fail to start,
+    # the trivial rollback is to re-add `privileged: true`. Further narrowing (drop
+    # /dev:/dev, map only /dev/hand_L,/dev/hand_R) is a follow-up to do with hardware.
+    cap_add:
+      - SYS_NICE
+      - IPC_LOCK
+    ulimits:
+      rtprio: 99
+      memlock: -1
+    device_cgroup_rules:
+      - 'c 188:* rmw'
+      - 'c 189:* rmw'
     volumes:
       - ./robot_workspace:/root/workspace
       - ./logs:/var/log/mir
@@ -70,18 +128,23 @@ services:
       - /usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/tegra
       - ./UR/action_bridge/action_bridge.py:/action_bridge.py
       - ./UR/ur_entrypoint/ur_entrypoint.sh:/entrypoint.sh
+      # Security: patched rosbridge launch that also wires actions_glob, so the
+      # entrypoint can lock :9090 to a read-only topic whitelist (deny services +
+      # actions). Read-only overlay keeps the image pristine.
+      - ./UR/rosbridge_hardening/rosbridge_websocket_launch.xml:/opt/ros/humble/share/rosbridge_server/launch/rosbridge_websocket_launch.xml:ro
       - ./UR/ur_start/ur_start.sh:/ur_start.sh
       - ./UR/ur_stop/ur_stop.sh:/ur_stop.sh
       - ./UR/joint_server/joint_server.py:/joint_server.py
       - ./UR/joint_mover/joint_mover.py:/joint_mover.py
-      # Touch-hands node (BrainCo Revo1) — launchable on demand via /api/nodes/touch_*.
-      - ./ENDEFFECTOR/touch_sensor_node/touch_sensor_node.py:/touch_sensor_node.py
+      # Hand-control node (BrainCo Revo1) — launchable on demand via /api/nodes/hand_*.
       - ./ENDEFFECTOR/hand_control_node/hand_control_node.py:/hand_control_node.py
       - ./config:/mir/config
     environment:
       - ROS_DOMAIN_ID=75
       - DISPLAY=:1
       - UR_CONTAINER=mir_ur_driver
+      # Bind rosbridge to loopback so :9090 is not LAN-exposed; Caddy proxies it.
+      - ROSBRIDGE_ADDRESS=127.0.0.1
     restart: unless-stopped
 
   ur_driver_sim:
@@ -89,8 +152,20 @@ services:
     image: mir-ur-driver:latest
     container_name: mir_ur_driver_sim
     network_mode: host
-    privileged: true
     profiles: [sim]
+    # Hardening: same as ur_driver — dropped `privileged`. The sim uses fake
+    # hardware (no RTDE, no real hands) so it needs even less, but we keep the same
+    # caps/cgroup as the real driver for parity and so hand nodes can still be
+    # exercised. See the ur_driver block above for the rationale.
+    cap_add:
+      - SYS_NICE
+      - IPC_LOCK
+    ulimits:
+      rtprio: 99
+      memlock: -1
+    device_cgroup_rules:
+      - 'c 188:* rmw'
+      - 'c 189:* rmw'
     volumes:
       - ./robot_workspace:/root/workspace
       - ./logs:/var/log/mir
@@ -98,14 +173,16 @@ services:
       - /usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/tegra
       - ./UR/action_bridge/action_bridge.py:/action_bridge.py
       - ./UR/sim_entrypoint/sim_entrypoint.sh:/entrypoint.sh
+      # Security: patched rosbridge launch (adds actions_glob) so the sim entrypoint
+      # can lock :9090 to a read-only topic whitelist too. Read-only overlay.
+      - ./UR/rosbridge_hardening/rosbridge_websocket_launch.xml:/opt/ros/humble/share/rosbridge_server/launch/rosbridge_websocket_launch.xml:ro
       - ./UR/joint_server/joint_server.py:/joint_server.py
       - ./UR/joint_mover/joint_mover.py:/joint_mover.py
       # Patched duo_ur launch (fake_hardware fix) overlaid read-only so Eemil's
       # workspace stays pristine. Only the sim needs it: the patched block runs
       # only when use_fake_hardware:=true, so the real driver uses the original.
       - ./UR/duo_ur_launch_patch/duo_ur_real.launch.py:/root/workspace/ros_ws/src/UR_arms/duo_ur/launch/duo_ur_real.launch.py:ro
-      # Touch-hands node (BrainCo Revo1) — launchable on demand via /api/nodes/touch_*.
-      - ./ENDEFFECTOR/touch_sensor_node/touch_sensor_node.py:/touch_sensor_node.py
+      # Hand-control node (BrainCo Revo1) — launchable on demand via /api/nodes/hand_*.
       - ./ENDEFFECTOR/hand_control_node/hand_control_node.py:/hand_control_node.py
       # ur_start/ur_stop so the arm driver can start ON DEMAND in the sim too.
       - ./UR/ur_start/ur_start.sh:/ur_start.sh
@@ -117,4 +194,12 @@ services:
       # ur_start.sh launches mock hardware here (no real arms in the sim).
       - UR_FAKE_HARDWARE=true
       - UR_CONTAINER=mir_ur_driver_sim
+      # Bind rosbridge to loopback so :9090 is not LAN-exposed; Caddy proxies it.
+      - ROSBRIDGE_ADDRESS=127.0.0.1
     restart: unless-stopped
+
+# Named volumes for Caddy's TLS proxy state (its local data/config, incl. any
+# internally-managed keys). Kept out of the repo.
+volumes:
+  caddy_data:
+  caddy_config:

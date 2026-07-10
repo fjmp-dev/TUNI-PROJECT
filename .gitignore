@@ -42,3 +42,6 @@ Thumbs.db
 
 # Self-contained workspace copy (heavy, not versioned)
 robot_workspace/
+
+# Runtime user profiles (password hashes + per-user config) — data, not code
+UI/backend/data/

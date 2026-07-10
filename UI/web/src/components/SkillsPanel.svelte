@@ -14,6 +14,16 @@
   let appliedPayload = $state({ left: 0, right: 0 });
   const FREEDRIVE_MIN_PAYLOAD = 1; // kg — required before going compliant
 
+  // Collapsible panel (state remembered in localStorage).
+  function loadCollapsed() {
+    try { return localStorage.getItem('mir_skills_collapsed') === '1'; } catch { return false; }
+  }
+  let collapsed = $state(loadCollapsed());
+  function toggleCollapsed() {
+    collapsed = !collapsed;
+    try { localStorage.setItem('mir_skills_collapsed', collapsed ? '1' : '0'); } catch {}
+  }
+
   async function toggleFreedrive(side) {
     const target = !freedrive[side];
     // Require an active payload > 1 kg before enabling, so the arm can hold its
@@ -54,7 +64,14 @@
 </script>
 
 <div class="panel">
-  <div class="panel-header"><h2>Smart Skills</h2></div>
+  <div class="panel-header hdr-toggle" onclick={toggleCollapsed} role="button" tabindex="0">
+    <div class="hdr-title">
+      <h2>Smart Skills</h2>
+      <span class="hdr-desc">Set the arm payload and hand-guide (freedrive) the UR5e arms — no coding needed.</span>
+    </div>
+    <span class="chev">{collapsed ? '▸' : '▾'}</span>
+  </div>
+  {#if !collapsed}
   <div class="panel-body">
     <div class="skill">
       <div class="skill-title">Active payload</div>
@@ -109,12 +126,18 @@
       <div class="note">Needs the Nordbo F/T sensors integrated first.</div>
     </div>
   </div>
+  {/if}
 </div>
 
 <style>
+  .hdr-toggle { cursor: pointer; user-select: none; }
+  .hdr-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .hdr-desc { font-size: 11px; color: var(--muted); font-weight: 400; line-height: 1.3; }
+  .chev { color: var(--muted); font-size: 12px; flex: none; margin-left: 10px; }
+
   .skill { padding-bottom: 14px; }
   .skill + .skill { border-top: 1px solid var(--border); padding-top: 14px; }
-  .skill-title { font-weight: 600; color: #fff; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .skill-title { font-weight: 600; color: var(--heading); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
   .row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
   label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
   input, select { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: 6px; font: inherit; }
