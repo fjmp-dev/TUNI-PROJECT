@@ -1,12 +1,13 @@
 // Auth state. The token (issued by /api/login) lives in localStorage so it
 // survives reloads; api.js reads it from there (config.token) for every request.
 //
-// CRITICAL INVARIANT: applyNodes() is called ONLY in login() (explicit user
-// action), never in token restoration. This is so that reloading the page
-// doesn't re-spawn the user's saved nodes (which may already be running, or
-// have crashed, or simply be inappropriate to auto-restart). The sidebar has
-// a "Start my nodes" button for manual retry. App.svelte uses api.me() to
-// re-hydrate the profile on reload but never applyNodes.
+// CRITICAL INVARIANT: NOTHING is started as a side effect of logging in.
+// Logging in used to call applyNodes(), which spawned every node saved in the
+// profile. On 2026-07-13 that silently started `rosbag` (saved in admin's
+// profile) on each login; it recorded every topic and wrote 522 GB, filling the
+// disk. Even for harmless nodes it is the wrong default: opening a web page must
+// not power things up on a robot. Nodes now start only when someone clicks them
+// -- per node, or via the explicit "Start my nodes" button.
 import { api } from './api.js';
 import { setProfile, clearProfile } from './profiles.svelte.js';
 
@@ -20,13 +21,6 @@ function load() {
 
 export const auth = $state({ token: load() });
 
-// Tracks whether the current session already auto-applied nodes. Reset on
-// logout. On a page reload the module re-initializes (so this resets to
-// false), but the token still loads from localStorage in `load()` above —
-// which is why App.svelte must NEVER call applyNodes on token-restore; only
-// login() does, gated by this flag for defense in depth.
-let _applied_this_session = false;
-
 export async function login(username, password) {
   const r = await api.login(username, password);
   try {
@@ -36,13 +30,8 @@ export async function login(username, password) {
   }
   auth.token = r.token;
   setProfile(r); // login returns { token, username, role, config }
-  // Auto-start this profile's saved nodes — ONLY on explicit login, never
-  // on reload. The flag protects against double-fire if login() is somehow
-  // called twice (e.g. user mashes the button).
-  if (!_applied_this_session) {
-    _applied_this_session = true;
-    api.applyNodes().catch(() => {});
-  }
+  // Deliberately does NOT start anything. The profile's node list is a shortcut
+  // ("Start my nodes"), not an autostart list.
 }
 
 export async function logout() {

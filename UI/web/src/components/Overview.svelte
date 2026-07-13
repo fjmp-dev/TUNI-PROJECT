@@ -53,6 +53,13 @@
 
   const runningNodes = $derived((nodesState.nodes || []).filter((n) => n.running));
   const stoppedNodes = $derived((nodesState.nodes || []).filter((n) => !n.running));
+
+  // ---- rosbag recording ----
+  // Surfaced as its own button because a recording that nobody can see is a recording
+  // nobody stops: buried in the node list, one left running wrote 522 GB and filled the
+  // disk. It is never auto-started (no_autostart in the backend) -- only this click.
+  const recording = $derived(!!(nodesState.nodes || []).find((n) => n.id === 'rosbag' && n.running));
+  const toggleRec = () => (recording ? stopNode('rosbag') : startNode('rosbag'));
 </script>
 
 <div class="view-head">
@@ -61,8 +68,17 @@
     <h1>Overview</h1>
     <p>Everything the suite is running right now. Jump into a subsystem from its tab.</p>
   </div>
-  <button class="btn accent" onclick={startMyNodes} disabled={!canControl()}
-          title={canControl() ? 'Launch the nodes in your profile' : 'Read-only: control not allowed'}>Start my nodes</button>
+  <div class="head-actions">
+    <button class="btn rec" class:on={recording} onclick={toggleRec}
+            disabled={!canControl() || busy.has('rosbag')}
+            title={canControl()
+              ? (recording ? 'Stop the rosbag recording now' : 'Record a rosbag (stops itself after 10 min; raw images excluded)')
+              : 'Read-only: control not allowed'}>
+      <span class="dot" class:blink={recording}></span>{recording ? 'Recording — stop' : 'Record'}
+    </button>
+    <button class="btn accent" onclick={startMyNodes} disabled={!canControl()}
+            title={canControl() ? 'Launch the nodes in your profile' : 'Read-only: control not allowed'}>Start my nodes</button>
+  </div>
 </div>
 
 <div class="tiles">
@@ -179,6 +195,15 @@
 </div>
 
 <style>
+  .head-actions { display: flex; gap: 8px; align-items: center; }
+  .btn.rec { display: inline-flex; align-items: center; gap: 7px; }
+  .btn.rec .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .btn.rec.on { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); background: var(--err-soft); font-weight: 600; }
+  .btn.rec.on .dot { background: var(--err); }
+  .dot.blink { animation: rec-pulse 1.2s ease-in-out infinite; }
+  @keyframes rec-pulse { 50% { opacity: 0.25; } }
+  @media (prefers-reduced-motion: reduce) { .dot.blink { animation: none; } }
+
   .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
   @media (max-width: 1080px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 560px) { .tiles { grid-template-columns: 1fr; } }

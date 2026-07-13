@@ -35,6 +35,12 @@
   }
   function closeLogs() { logNode = null; clearInterval(logTimer); logTimer = null; }
 
+  // "What does this do?" popup. Nothing here starts until someone clicks Start, so
+  // the list is only useful if you can tell what each entry actually is.
+  let info = $state(null); // { label, desc, running }
+  const openInfo = (p) => (info = p);
+  const closeInfo = () => (info = null);
+
   onMount(startNodes);
   onDestroy(() => { stopNodes(); clearInterval(logTimer); });
 </script>
@@ -72,6 +78,7 @@
             <input type="checkbox" checked={isNodeSelected(n.id)} onchange={() => toggleNode(n.id)} />
           </label>
           <span class="info"><span class="pname">{n.label}</span><span class="pid">{n.id}</span></span>
+          <button class="ghost qmark" onclick={() => openInfo(n)} title="What does this do?" aria-label="What does {n.label} do?">?</button>
           <button class="ghost" onclick={() => openLogs(n.id, n.label)} title="View logs">logs</button>
           {#if n.running}
             <button class="btn-danger sm" onclick={() => stopNode(n.id)} disabled={busy['n:' + n.id] || !canControl()} title={canControl() ? 'Stop' : 'Read-only: control not allowed'}>Stop</button>
@@ -114,7 +121,7 @@
           <span class="pdot" class:on={s.running}></span>
           <span class="pick"></span>
           <span class="info"><span class="pname">{s.label}</span></span>
-          <span class="cmeta"></span>
+          <button class="ghost qmark" onclick={() => openInfo(s)} title="What does this do?" aria-label="What does {s.label} do?">?</button>
           <span class="sys-state" class:up={s.running}>{s.running ? 'up' : 'down'}</span>
         </div>
       {/each}
@@ -123,8 +130,9 @@
 </div>
 
 <div class="profile-hint">
-  Tick <strong>☑</strong> next to the nodes you want, then <strong>Save my config</strong>. They auto-start when
-  you log in — or press <strong>Start my nodes</strong> to launch them now.
+  Nothing starts on its own. Tick <strong>☑</strong> the nodes you use and <strong>Save my config</strong>; then
+  <strong>Start my nodes</strong> launches that set in one click, whenever <em>you</em> ask for it.
+  Not sure what something is? Hit <strong>?</strong> next to it.
 </div>
 
 {#if logNode}
@@ -139,7 +147,38 @@
   </div>
 {/if}
 
+{#if info}
+  <div class="log-overlay" onclick={closeInfo}>
+    <div class="log-modal info-modal" onclick={(e) => e.stopPropagation()}>
+      <div class="log-head">
+        <span class="log-title">{info.label}{#if info.id}<span class="log-id">({info.id})</span>{/if}</span>
+        <button class="log-close" onclick={closeInfo} title="Close">✕</button>
+      </div>
+      <div class="info-body">
+        <p>{info.desc || 'No description yet.'}</p>
+        <div class="info-meta">
+          <span class="info-state" class:up={info.running}>{info.running ? 'running' : 'stopped'}</span>
+          {#if info.container}<span class="info-chip">{info.container}</span>{/if}
+          {#if info.no_autostart}<span class="info-chip warn">manual start only</span>{/if}
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
+  .qmark { font-weight: 700; width: 22px; text-align: center; }
+  .info-modal { max-width: 460px; }
+  .info-body { padding: 14px 16px 16px; }
+  .info-body p { margin: 0 0 12px; font-size: 13.5px; line-height: 1.55; color: var(--text); }
+  .info-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+  .info-state, .info-chip {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 20px;
+    text-transform: uppercase; letter-spacing: 0.04em; color: var(--faint); background: var(--panel-3);
+    border: 1px solid transparent;
+  }
+  .info-state.up { color: var(--ok); background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+  .info-chip.warn { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
   .head-actions { display: flex; gap: 8px; }
   .ro-note {
     margin-bottom: 14px; padding: 10px 13px; border-radius: 9px; font-size: 12.5px;

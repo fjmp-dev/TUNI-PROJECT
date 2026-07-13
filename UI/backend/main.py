@@ -324,15 +324,23 @@ async def apply_my_nodes(request: Request):
     user = _profiles.get(request.state.user)
     if not user:
         raise HTTPException(404, "profile not found")
-    started, errors = [], []
+    started, skipped, errors = [], [], []
     for node_id in user.get("nodes", []):
-        if node_id in NODES:
-            try:
-                await asyncio.to_thread(_node_start, node_id)
-                started.append(node_id)
-            except Exception as e:
-                errors.append({"node": node_id, "error": str(e)})
-    return {"status": "ok", "started": started, "errors": errors}
+        if node_id not in NODES:
+            continue
+        # Recording must never start as a side effect of logging in. The rosbag node
+        # was saved in admin's profile, so every login silently began recording every
+        # topic -- that is how 522 GB landed on the disk on 2026-07-13. Nodes flagged
+        # no_autostart are startable only by an explicit click.
+        if NODES[node_id].get("no_autostart"):
+            skipped.append(node_id)
+            continue
+        try:
+            await asyncio.to_thread(_node_start, node_id)
+            started.append(node_id)
+        except Exception as e:
+            errors.append({"node": node_id, "error": str(e)})
+    return {"status": "ok", "started": started, "skipped": skipped, "errors": errors}
 
 
 @app.get("/api/users")
@@ -803,6 +811,9 @@ async def ur_freedrive(body: FreedriveRequest, request: Request):
 NODES = {
     "ur_driver": {
         "label": "UR5e Driver (duo_ur)",
+        "desc": ("Connects to both UR5e arms over RTDE and brings up ros2_control, so the "
+                 "arms can be jogged from the Arms tab. Nothing moves on its own: it only "
+                 "makes the arms controllable. Needs the arms powered on."),
         "container": _ur_container_name,
         "pgrep": "[d]uo_ur_real",
         "start_cmd": "bash /ur_start.sh",
@@ -811,6 +822,8 @@ NODES = {
     },
     "hand_real": {
         "label": "Hand Control (real)",
+        "desc": ("Drives the two BrainCo Revo1 hands over USB serial. Finger currents are "
+                 "clamped in software. Requires the hands plugged in and powered."),
         "container": _ur_container_name,
         "pgrep": "[h]and_control_node.py --ports",
         "start_cmd": "python3 /hand_control_node.py --ports /dev/ttyUSB0:left /dev/ttyUSB1:right",
@@ -820,6 +833,8 @@ NODES = {
     # Mock variant: logs commands + cycles a demo open/close, no hardware/SDK.
     "hand_mock": {
         "label": "Hand Control (mock)",
+        "desc": ("Same hand node with no hardware: it logs the commands it would send and "
+                 "cycles a demo open/close. Use it to exercise the UI without the hands."),
         "container": _ur_container_name,
         "pgrep": "[h]and_control_node.py --mock",
         "start_cmd": "python3 /hand_control_node.py --mock",
@@ -828,8 +843,15 @@ NODES = {
     },
     "rosbag": {
         "label": "Record rosbag (10 min max, no raw images)",
+        "desc": ("Records the ROS topics to a file on disk for later replay. WRITES A LOT OF "
+                 "DATA: it stops itself after 10 minutes and skips raw/depth images, because "
+                 "an unbounded recording once wrote 522 GB and filled the disk. Stop it as "
+                 "soon as you have what you need."),
         "container": _ur_container_name,
         "pgrep": "[r]os2 bag record",
+        # Explicit click only -- never auto-started from a saved profile. See
+        # /api/me/apply for the incident this prevents.
+        "no_autostart": True,
         # BOUNDED ON PURPOSE. The old command was a bare `ros2 bag record -a`: every
         # topic, no size cap, no time cap. Started from the UI on 2026-07-13 it wrote
         # 522 GB in three hours (the camera alone is ~30 Hz of images), filled the
@@ -854,6 +876,9 @@ NODES = {
     # pgrep keys on the enable_depth arg so status tells color vs depth apart.
     "camera_color": {
         "label": "Camera (color)",
+        "desc": ("Orbbec Gemini 335Lg, colour stream only (480x270 @ 30 fps) — this is what "
+                 "the Camera tab shows. Cheapest option; cannot run at the same time as the "
+                 "depth variant (one USB device)."),
         "container": "mir_camera",
         "pgrep": "[e]nable_depth:=false",
         "start_cmd": ("ros2 launch orbbec_camera gemini_330_series.launch.py "
@@ -863,6 +888,9 @@ NODES = {
     },
     "camera_depth": {
         "label": "Camera (color + depth + cloud)",
+        "desc": ("Same camera with depth and a coloured point cloud on top — what you want for "
+                 "perception/grasping. Heavier on USB and CPU than the colour-only variant, and "
+                 "mutually exclusive with it."),
         "container": "mir_camera",
         "pgrep": "[e]nable_depth:=true",
         "start_cmd": ("ros2 launch orbbec_camera gemini_330_series.launch.py "
@@ -877,10 +905,27 @@ NODES = {
 # Read-only infrastructure processes (started at container boot; shown as status
 # only — no start/stop, since the UI depends on them / a watchdog owns them).
 SYSTEM = {
-    "rosbridge":     {"label": "rosbridge (:9090)", "container": _ur_container_name, "pgrep": "[r]osbridge_websocket"},
-    "joint_server":  {"label": "Joint server",      "container": _ur_container_name, "pgrep": "[j]oint_server.py"},
-    "action_bridge": {"label": "Action bridge",     "container": _ur_container_name, "pgrep": "[a]ction_bridge.py"},
-    "mir_bridge":    {"label": "MiR bridge",         "container": "mir_mir",          "pgrep": "[m]ir_raw.py"},
+    "rosbridge": {
+        "label": "rosbridge (:9090)", "container": _ur_container_name, "pgrep": "[r]osbridge_websocket",
+        "desc": ("The bridge this web page talks to for live data (camera, joints). Read-only: "
+                 "it can only subscribe to whitelisted topics, never command the robot."),
+    },
+    "joint_server": {
+        "label": "Joint server", "container": _ur_container_name, "pgrep": "[j]oint_server.py",
+        "desc": "Publishes the arms' joint positions to the UI. Loopback only, not exposed to the LAN.",
+    },
+    "action_bridge": {
+        "label": "Action bridge", "container": _ur_container_name, "pgrep": "[a]ction_bridge.py",
+        "desc": "Turns the UI's skill requests (grasp, move to pose, hand open/close) into ROS actions.",
+    },
+    "mir_bridge": {
+        "label": "MiR bridge", "container": "mir_mir",
+        # Was "[m]ir_raw.py" -- that script was deleted when Wael's selective bridge
+        # replaced it, so this always reported "stopped" even while the bridge ran.
+        "pgrep": "[m]ir_bridge.py",
+        "desc": ("Bridges the MiR200's own ROS with ours: odometry, both laser scanners and "
+                 "battery in, /cmd_vel out. Restarts itself if the MiR drops off the network."),
+    },
 }
 
 
@@ -990,6 +1035,8 @@ async def list_nodes():
     for node_id, node in NODES.items():
         running = await asyncio.to_thread(_node_status, node_id)
         result.append({"id": node_id, "label": node["label"],
+                       "desc": node.get("desc", ""),
+                       "no_autostart": bool(node.get("no_autostart")),
                        "container": _node_container(node), "running": running})
     return {"nodes": result}
 
@@ -1001,7 +1048,7 @@ async def list_system():
     for sid, s in SYSTEM.items():
         cname = s["container"]() if callable(s["container"]) else s["container"]
         running = await asyncio.to_thread(_pgrep, cname, s["pgrep"])
-        result.append({"id": sid, "label": s["label"], "running": running})
+        result.append({"id": sid, "label": s["label"], "desc": s.get("desc", ""), "running": running})
     return {"system": result}
 
 
