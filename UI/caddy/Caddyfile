@@ -1,8 +1,18 @@
-# Reverse proxy that terminates TLS for the whole suite on :443 with the cert our
-# own root CA signed (config/tls/suite.crt|key). It fronts BOTH the UI/REST (uvicorn)
-# and rosbridge under ONE origin, so the browser only ever deals with one cert on
-# one port and everything is https/wss. uvicorn and rosbridge stay plain-HTTP on
-# loopback behind this proxy.
+# Reverse proxy for the whole suite. It fronts BOTH the UI/REST (uvicorn) and
+# rosbridge under ONE origin, on :443 (TLS, cert signed by our own root CA) and on
+# :80 (plain HTTP). uvicorn (8080) and rosbridge (9090) bind loopback only and are
+# never reachable from the LAN except through here.
+#
+# WHY PLAIN HTTP IS ALSO SERVED (decided 13-Jul-2026, with the user):
+# a LAN-only CA means every device must import ca.crt once, and on laptops we do not
+# administer that is a real wall -- the team could not open the suite at all. Rather
+# than have people click through certificate warnings (the habit that makes a genuine
+# MITM work), :80 serves the same app in the clear and :443 stays for anyone who has
+# the CA installed. The cost is explicit and accepted: over :80 the login password
+# and every robot command travel unencrypted on the lab LAN, so anyone on that WiFi
+# can read them and replay them. That is the pre-hardening status quo, not a new hole
+# -- but it is a hole. Re-enable the redirect below (and drop the http:// site) once
+# the CA is deployed on the machines that matter.
 {
 	# LAN only: no public CA / ACME. We bind our own cert on the site below.
 	auto_https disable_redirects
@@ -10,10 +20,8 @@
 	admin off
 }
 
-# HTTPS on :443 for every LAN name/IP (matches tunisuite.local and 192.168.1.75).
-https:// {
-	tls /certs/suite.crt /certs/suite.key
-
+# Shared routes, so http:// and https:// serve exactly the same app.
+(suite) {
 	# Our root CA, served so a phone/laptop can install it by just browsing here.
 	# It is a PUBLIC certificate (no private key) -- safe to expose; the matching
 	# ca.key stays on the Jetson. The content-type is what makes Android/iOS offer
@@ -25,9 +33,10 @@ https:// {
 		file_server
 	}
 
-	# rosbridge: the browser opens wss://<host>/rosbridge. Strip the prefix and
+	# rosbridge: the browser opens ws(s)://<host>/rosbridge. Strip the prefix and
 	# proxy to the plain-ws rosbridge on loopback. reverse_proxy handles the WS
-	# upgrade transparently.
+	# upgrade transparently. Same-origin on BOTH schemes: ws:// from an https page
+	# would be blocked as mixed content, and :9090 is not LAN-reachable any more.
 	@rosbridge path /rosbridge /rosbridge/*
 	handle @rosbridge {
 		uri strip_prefix /rosbridge
@@ -41,7 +50,14 @@ https:// {
 	}
 }
 
-# Redirect plain http://:80 to https:// so old bookmarks still land on TLS.
+# HTTPS on :443 for every LAN name/IP (cert covers mir-suite.local, tunisuite.local,
+# lab.local and 192.168.1.75).
+https:// {
+	tls /certs/suite.crt /certs/suite.key
+	import suite
+}
+
+# Plain HTTP on :80 -- same app, no certificate, works on any device with no setup.
 http:// {
-	redir https://{host}{uri} permanent
+	import suite
 }
