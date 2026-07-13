@@ -1,4 +1,8 @@
 cd /home/lab/Desktop/MIR/mir_suite
-docker compose --profile full up -d       # everything
-docker compose --profile vision up -d     # UI + camera only
+docker compose up -d                      # base stack: caddy, mdns, mir_ui, camera, mir
+docker compose --profile arms up -d       # + real UR driver container
+docker compose --profile sim up -d        # + mock-hardware UR container (test first!)
 docker compose logs -f                    # watch logs live
+docker compose down                       # stop everything
+# Jetson quirk: image builds need host networking:
+#   docker build --network=host -f UI/ui_image/Dockerfile -t mir_ui:latest .

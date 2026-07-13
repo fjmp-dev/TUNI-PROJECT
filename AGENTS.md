@@ -19,9 +19,12 @@ Jetson AGX Orin ("Kevin") at 192.168.1.75.
   projects by Eemil, mounted read-only into containers but NOT in our git
   repo. **DO NOT MODIFY.** They are dependencies, not ours.
 
-The single source of truth for project context is **`mir_suite/PROJECT.md`**
-(if it exists) or `mir_suite/SECURITY.md` (security audit findings). Read
-them on first session.
+The single source of truth for project context is
+**`documentation/MIR_SUITE_MANUAL.md`** (the technical manual — every fact in it
+was verified against the live system), plus `SECURITY.md` for the hardening log.
+Read them on first session. The old PROJECT.md and the HTML reports were deleted
+on 2026-07-13 because they described a pre-refactor system (mir_raw.py, privileged
+containers, the old UI); if git history resurfaces them, do not trust their facts.
 
 ---
 

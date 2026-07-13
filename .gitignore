@@ -45,3 +45,4 @@ robot_workspace/
 
 # Runtime user profiles (password hashes + per-user config) — data, not code
 UI/backend/data/
+.~lock.*#
