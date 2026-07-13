@@ -827,11 +827,26 @@ NODES = {
         "stop": {"kind": "pkill", "pattern": "hand_control_node.py --mock"},
     },
     "rosbag": {
-        "label": "Record rosbag (all topics)",
+        "label": "Record rosbag (10 min max, no raw images)",
         "container": _ur_container_name,
         "pgrep": "[r]os2 bag record",
+        # BOUNDED ON PURPOSE. The old command was a bare `ros2 bag record -a`: every
+        # topic, no size cap, no time cap. Started from the UI on 2026-07-13 it wrote
+        # 522 GB in three hours (the camera alone is ~30 Hz of images), filled the
+        # 937 GB root disk, and died mid-write -- leaving a bag with no metadata.yaml,
+        # i.e. unreadable. A recording that kills the host is not a feature.
+        #   timeout 600  -> SIGTERM after 10 min, which closes the bag cleanly.
+        #   -x           -> drop the firehose topics (raw/depth images, point clouds).
+        #                   The compressed camera stream is still recorded.
+        #   --max-bag-size -> split into 2 GB files so a crash costs one file, not all.
         # $(date ...) is evaluated by the bash -c wrapper -> a fresh timestamped bag each run.
-        "start_cmd": "ros2 bag record -a -o /var/log/mir/bag_$(date +%Y%m%d_%H%M%S)",
+        "start_cmd": (
+            "timeout --signal=TERM 600 "
+            "ros2 bag record -a "
+            "-x '.*/image_raw$|.*/depth/.*|.*/points.*|.*/depth_registered/.*' "
+            "--max-bag-size 2000000000 "
+            "-o /var/log/mir/bag_$(date +%Y%m%d_%H%M%S)"
+        ),
         "log": "/var/log/mir/rosbag.log",
         "stop": {"kind": "pkill", "pattern": "ros2 bag record"},  # SIGTERM closes the bag cleanly
     },
