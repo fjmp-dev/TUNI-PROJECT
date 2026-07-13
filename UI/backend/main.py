@@ -1147,7 +1147,19 @@ async def term_ws(ws: WebSocket):
     await ws.accept()
     api = docker_client.api
     try:
-        exec_id = api.exec_create(cname, ["bash"], tty=True, stdin=True, stdout=True, stderr=True)["Id"]
+        # Source ROS before handing over the shell: none of the images put ros2 on
+        # PATH by default, so a bare `bash` gives "ros2: command not found" and the
+        # terminal looks broken. `exec bash` keeps it interactive (and the exported
+        # env survives into it). The overlay is best-effort -- mir_camera/mir_mir
+        # have no ros_ws build, hence the 2>/dev/null.
+        shell = (
+            "source /opt/ros/humble/setup.bash 2>/dev/null; "
+            "source /root/workspace/ros_ws/install/setup.bash 2>/dev/null; "
+            "exec bash"
+        )
+        exec_id = api.exec_create(
+            cname, ["bash", "-c", shell], tty=True, stdin=True, stdout=True, stderr=True
+        )["Id"]
         sock = api.exec_start(exec_id, socket=True, tty=True)
         raw = sock._sock  # underlying socket for raw read/write
     except Exception as e:
