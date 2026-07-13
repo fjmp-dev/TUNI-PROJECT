@@ -204,8 +204,19 @@ The cert's name (`tunisuite.local`) also never resolved: the Jetson's avahi publ
   `Content-Type: application/x-x509-ca-cert` so phones offer to install it directly.
   Only the *certificate* is exposed; `ca.key` never leaves the Jetson.
 
-**Install the CA once per device** (this is what removes the warning):
-- **Ubuntu/Debian:** `sudo cp ca.crt /usr/local/share/ca-certificates/mir-suite-ca.crt && sudo update-ca-certificates`
+**Install the CA once per device** (this is what removes the warning). On the Jetson
+(or any Linux box) just run **`config/tls/trust_ca.sh`** — it finds every store and
+writes to all of them.
+
+The trap it exists to avoid: **browsers on Linux ignore the system trust store.**
+Firefox and Chrome each keep their own NSS database, and the *snap* builds keep theirs
+in a private path (`~/snap/chromium/current/.pki/nssdb`). Installing the CA into
+`~/.pki/nssdb` or into `/usr/local/share/ca-certificates` fixes `curl` and changes
+*nothing* in a snap Chromium — it still shows `ERR_CERT_AUTHORITY_INVALID`. Always
+restart the browser fully afterwards: NSS is read once at startup.
+
+Manually, per platform:
+- **Linux (curl/python only):** `sudo cp ca.crt /usr/local/share/ca-certificates/mir-suite-ca.crt && sudo update-ca-certificates`
 - **Firefox** (has its own store): Settings → Privacy & Security → Certificates →
   View Certificates → Authorities → Import → tick *Trust to identify websites*.
 - **Windows:** double-click → Install Certificate → Local Machine → place in
