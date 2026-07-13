@@ -47,5 +47,4 @@ export async function logout() {
   }
   auth.token = '';
   clearProfile();
-  _applied_this_session = false;
 }

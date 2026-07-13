@@ -70,7 +70,7 @@
   </div>
   <div class="head-actions">
     <button class="btn rec" class:on={recording} onclick={toggleRec}
-            disabled={!canControl() || busy.has('rosbag')}
+            disabled={!canControl() || busy['n:rosbag']}
             title={canControl()
               ? (recording ? 'Stop the rosbag recording now' : 'Record a rosbag (stops itself after 10 min; raw images excluded)')
               : 'Read-only: control not allowed'}>

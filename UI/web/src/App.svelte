@@ -17,10 +17,31 @@
   import TerminalPanel from './components/TerminalPanel.svelte';
   import LogPanel from './components/LogPanel.svelte';
 
-  let view = $state('overview');
+  // The view lives in the URL hash (#/arms, #/system, ...), not in component state:
+  // a reload keeps you on the tab you were on, back/forward moves between tabs, and
+  // a tab can be linked/bookmarked. nav() only writes the hash; the hashchange
+  // listener is the single place that switches the view, so both entry paths
+  // (clicking a tab, editing the URL) behave identically.
+  const VIEWS = ['overview', 'arms', 'mir', 'camera', 'system', 'terminal'];
+  const viewFromHash = () => {
+    const v = window.location.hash.replace(/^#\/?/, '');
+    return VIEWS.includes(v) ? v : 'overview';
+  };
+  let view = $state(viewFromHash());
   function nav(v) {
     // Guard: only admins can reach the terminal (backend enforces it too).
     if (v === 'terminal' && profile.role !== 'admin') return;
+    if ('#/' + v === window.location.hash) return; // same tab: no-op (no scroll jump)
+    window.location.hash = '/' + v;
+  }
+  function syncView() {
+    const v = viewFromHash();
+    // Deep link to #/terminal by a non-admin: bounce to overview once the profile
+    // is known (the backend refuses the terminal socket for non-admins anyway).
+    if (v === 'terminal' && profile.username && profile.role !== 'admin') {
+      window.location.hash = '/overview';
+      return;
+    }
     view = v;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -36,7 +57,11 @@
     }
   });
 
-  onMount(initTheme);
+  onMount(() => {
+    initTheme();
+    window.addEventListener('hashchange', syncView);
+    return () => window.removeEventListener('hashchange', syncView);
+  });
 </script>
 
 {#if !auth.token}
