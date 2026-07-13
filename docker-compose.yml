@@ -1,7 +1,8 @@
 services:
-  # TLS reverse proxy (always-on). Terminates https/wss on :443 with our self-signed
-  # cert and proxies to uvicorn (loopback:8080) and rosbridge (loopback:9090). The
-  # only component listening on the LAN in cleartext-free form. See UI/caddy/Caddyfile.
+  # TLS reverse proxy (always-on). Terminates https/wss on :443 with the cert issued
+  # by our own root CA (config/tls, see SECURITY.md) and proxies to uvicorn
+  # (loopback:8080) and rosbridge (loopback:9090). The only component listening on
+  # the LAN. Install config/tls/ca.crt on each browser once -> no more warnings.
   caddy:
     image: caddy:2
     container_name: mir_caddy
@@ -11,6 +12,20 @@ services:
       - ./config/tls:/certs:ro
       - caddy_data:/data
       - caddy_config:/config
+    restart: unless-stopped
+
+  # Publishes mir-suite.local on the LAN (via the host's avahi-daemon over D-Bus),
+  # so the UI has a stable name that matches the TLS cert instead of a bare IP.
+  mdns:
+    build:
+      context: .
+      dockerfile: UI/mdns/Dockerfile
+    image: mir-mdns:latest
+    container_name: mir_mdns
+    network_mode: host
+    volumes:
+      - /var/run/dbus:/var/run/dbus
+      - /var/run/avahi-daemon:/var/run/avahi-daemon
     restart: unless-stopped
 
   # Always-on service (no profile = always starts)

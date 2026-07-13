@@ -180,5 +180,50 @@ For each fix above, here's how to verify it's working in the lab:
 
 ---
 
-*Last updated: 2026-06-22*
+## TLS: private CA instead of a bare self-signed cert (13-Jul-2026)
+
+**Problem:** the suite was served over HTTPS with a single self-signed certificate,
+so every browser showed a full-page "Your connection is not private / attackers may
+be trying to steal your information" interstitial. Users click through such warnings
+by habit — which is exactly the habit that makes a real MITM on the lab LAN work.
+The cert's name (`tunisuite.local`) also never resolved: the Jetson's avahi publishes
+`lab.local`, so in practice everyone browsed the raw IP.
+
+**Fix:**
+- `config/tls/gen_cert.sh` now builds a **two-tier PKI**: a root CA
+  (`MIR Suite Local CA`, 10 y, `ca.key` chmod 600 and gitignored) that signs a server
+  cert (`suite.crt`, 825 d). Devices trust the *root*, so the server cert can be
+  reissued (new IP/name/expiry) without touching any laptop or phone again.
+- SANs: `mir-suite.local`, `tunisuite.local`, `lab.local`, `localhost`,
+  `192.168.1.75`, `127.0.0.1` — name **or** IP both validate.
+- New `mdns` service (`UI/mdns/`) publishes **`mir-suite.local`** on the LAN through
+  the host's avahi over D-Bus, so the URL is a name that matches the certificate.
+  It needs `-R` (no reverse record): avahi already owns the PTR for `.75` via
+  `lab.local`, and re-claiming it is a name collision that kills the publisher.
+- Caddy serves the public root at **`https://mir-suite.local/ca.crt`** with
+  `Content-Type: application/x-x509-ca-cert` so phones offer to install it directly.
+  Only the *certificate* is exposed; `ca.key` never leaves the Jetson.
+
+**Install the CA once per device** (this is what removes the warning):
+- **Ubuntu/Debian:** `sudo cp ca.crt /usr/local/share/ca-certificates/mir-suite-ca.crt && sudo update-ca-certificates`
+- **Firefox** (has its own store): Settings → Privacy & Security → Certificates →
+  View Certificates → Authorities → Import → tick *Trust to identify websites*.
+- **Windows:** double-click → Install Certificate → Local Machine → place in
+  *Trusted Root Certification Authorities*.
+- **Android:** browse to `/ca.crt` → Settings → Security → Install from storage → CA cert.
+- **iOS/macOS:** install the profile, then *enable full trust* in
+  Settings → General → About → Certificate Trust Settings (iOS skips this step at your peril).
+
+**Verify:** `curl --cacert config/tls/ca.crt https://mir-suite.local/` must return
+200 with `ssl_verify_result 0` — no `-k` anywhere.
+
+**Not fixed / accepted:** the root CA is a real trust anchor. Anyone who steals
+`ca.key` can mint certs for *any* site those devices visit, not just this suite.
+It stays on the Jetson at mode 600, is excluded by `.gitignore` (`*.key`), and must
+never be copied to a shared drive. Only install it on machines that actually operate
+the robot.
+
+---
+
+*Last updated: 2026-07-13*
 *Session owner: Kevin (estudiante) + opencode*

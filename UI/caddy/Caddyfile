@@ -1,5 +1,5 @@
-# Reverse proxy that terminates TLS for the whole suite on :443 with our own
-# self-signed cert (config/tls/suite.crt|key). It fronts BOTH the UI/REST (uvicorn)
+# Reverse proxy that terminates TLS for the whole suite on :443 with the cert our
+# own root CA signed (config/tls/suite.crt|key). It fronts BOTH the UI/REST (uvicorn)
 # and rosbridge under ONE origin, so the browser only ever deals with one cert on
 # one port and everything is https/wss. uvicorn and rosbridge stay plain-HTTP on
 # loopback behind this proxy.
@@ -13,6 +13,17 @@
 # HTTPS on :443 for every LAN name/IP (matches tunisuite.local and 192.168.1.75).
 https:// {
 	tls /certs/suite.crt /certs/suite.key
+
+	# Our root CA, served so a phone/laptop can install it by just browsing here.
+	# It is a PUBLIC certificate (no private key) -- safe to expose; the matching
+	# ca.key stays on the Jetson. The content-type is what makes Android/iOS offer
+	# to install it instead of downloading a useless file.
+	handle /ca.crt {
+		root * /certs
+		header Content-Type application/x-x509-ca-cert
+		header Content-Disposition "attachment; filename=mir-suite-ca.crt"
+		file_server
+	}
 
 	# rosbridge: the browser opens wss://<host>/rosbridge. Strip the prefix and
 	# proxy to the plain-ws rosbridge on loopback. reverse_proxy handles the WS
