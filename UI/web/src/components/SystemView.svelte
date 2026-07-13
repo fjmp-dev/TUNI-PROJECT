@@ -79,13 +79,15 @@
           </label>
           <span class="info"><span class="pname">{n.label}</span><span class="pid">{n.id}</span></span>
           <button class="ghost qmark" onclick={() => openInfo(n)} title="What does this do?" aria-label="What does {n.label} do?">?</button>
-          <button class="ghost" onclick={() => openLogs(n.id, n.label)} title="View logs">logs</button>
-          {#if n.running}
-            <button class="btn-danger sm" onclick={() => stopNode(n.id)} disabled={busy['n:' + n.id] || !canControl()} title={canControl() ? 'Stop' : 'Read-only: control not allowed'}>Stop</button>
-          {:else}
-            <button class="btn-accent sm" onclick={() => startNode(n.id)} disabled={busy['n:' + n.id] || !canControl() || cameraConflict(n.id)}
-                    title={!canControl() ? 'Read-only: control not allowed' : cameraConflict(n.id) ? 'Camera busy — stop the other variant first' : 'Start'}>Start</button>
-          {/if}
+          <span class="meta"><button class="ghost" onclick={() => openLogs(n.id, n.label)} title="View logs">logs</button></span>
+          <span class="act">
+            {#if n.running}
+              <button class="btn-danger sm" onclick={() => stopNode(n.id)} disabled={busy['n:' + n.id] || !canControl()} title={canControl() ? 'Stop' : 'Read-only: control not allowed'}>Stop</button>
+            {:else}
+              <button class="btn-accent sm" onclick={() => startNode(n.id)} disabled={busy['n:' + n.id] || !canControl() || cameraConflict(n.id)}
+                      title={!canControl() ? 'Read-only: control not allowed' : cameraConflict(n.id) ? 'Camera busy — stop the other variant first' : 'Start'}>Start</button>
+            {/if}
+          </span>
         </div>
       {/each}
     </div>
@@ -104,14 +106,17 @@
           <span class="pdot" class:on={c.running && !mirOffline}></span>
           <span class="pick"></span>
           <span class="info"><span class="pname">{c.label}</span><span class="pid">{c.name}</span></span>
-          <span class="cmeta">{mirOffline ? 'MiR offline' : c.status}</span>
-          {#if c.running}
-            <button class="btn-danger sm" onclick={() => stopContainer(c.name)} disabled={busy['c:' + c.name] || c.name === 'mir_ui' || !canControl()}
-                    title={!canControl() ? 'Read-only: control not allowed' : c.name === 'mir_ui' ? 'Cannot stop the UI' : 'Stop'}>Stop</button>
-          {:else}
-            <button class="btn-accent sm" onclick={() => startContainer(c.name)} disabled={busy['c:' + c.name] || !c.exists || !canControl()}
-                    title={!canControl() ? 'Read-only: control not allowed' : !c.exists ? 'Not created — run docker compose up' : 'Start'}>Start</button>
-          {/if}
+          <span class="qcol"></span>
+          <span class="meta cmeta">{mirOffline ? 'MiR offline' : c.status}</span>
+          <span class="act">
+            {#if c.running}
+              <button class="btn-danger sm" onclick={() => stopContainer(c.name)} disabled={busy['c:' + c.name] || c.name === 'mir_ui' || !canControl()}
+                      title={!canControl() ? 'Read-only: control not allowed' : c.name === 'mir_ui' ? 'Cannot stop the UI' : 'Stop'}>Stop</button>
+            {:else}
+              <button class="btn-accent sm" onclick={() => startContainer(c.name)} disabled={busy['c:' + c.name] || !c.exists || !canControl()}
+                      title={!canControl() ? 'Read-only: control not allowed' : !c.exists ? 'Not created — run docker compose up' : 'Start'}>Start</button>
+            {/if}
+          </span>
         </div>
       {/each}
 
@@ -122,7 +127,8 @@
           <span class="pick"></span>
           <span class="info"><span class="pname">{s.label}</span></span>
           <button class="ghost qmark" onclick={() => openInfo(s)} title="What does this do?" aria-label="What does {s.label} do?">?</button>
-          <span class="sys-state" class:up={s.running}>{s.running ? 'up' : 'down'}</span>
+          <span class="meta"></span>
+          <span class="act"><span class="sys-state" class:up={s.running}>{s.running ? 'up' : 'down'}</span></span>
         </div>
       {/each}
     </div>
@@ -167,9 +173,13 @@
 {/if}
 
 <style>
-  .qmark { font-weight: 700; width: 22px; text-align: center; }
-  .info-modal { max-width: 460px; }
-  .info-body { padding: 14px 16px 16px; }
+  .qmark { font-weight: 700; padding: 3px 0; width: 26px; text-align: center; border-radius: 50%; }
+  /* Sizes to its content: .log-modal is a fixed-height pane for a scrolling log, which
+     leaves a short description floating in a mostly empty box. Must out-specify
+     .log-modal (same specificity, defined later in this sheet -> it would win). */
+  .log-modal.info-modal { width: min(480px, 92vw); height: auto; max-height: 80vh; }
+  .info-modal .log-id { margin-left: 6px; }
+  .info-body { padding: 14px 16px 16px; overflow: auto; }
   .info-body p { margin: 0 0 12px; font-size: 13.5px; line-height: 1.55; color: var(--text); }
   .info-meta { display: flex; gap: 6px; flex-wrap: wrap; }
   .info-state, .info-chip {
@@ -187,7 +197,15 @@
   .sys-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 900px) { .sys-grid { grid-template-columns: 1fr; } }
   .list { padding-top: 6px; padding-bottom: 6px; }
-  .row { display: grid; grid-template-columns: 10px 18px 1fr auto auto; align-items: center; gap: 10px; padding: 9px 0; }
+  /* One grid shared by all three lists (nodes / containers / system) so their columns
+     line up down the page: status dot | profile tick | name | ? | meta | action.
+     Rows that have nothing for a column still emit an empty span -- otherwise the
+     cells shift left and the Start/Stop buttons stop lining up. The action column is
+     a fixed width because "Start" and "Stop" are different widths. */
+  .row { display: grid; grid-template-columns: 10px 18px minmax(0, 1fr) 26px auto 68px; align-items: center; gap: 10px; padding: 9px 0; }
+  .meta { display: flex; justify-content: flex-end; min-width: 0; }
+  .act { display: flex; justify-content: flex-end; }
+  .act > button { width: 100%; }
   .row + .row { border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
   .pdot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); }
   .pdot.on { background: var(--ok); box-shadow: 0 0 7px color-mix(in srgb, var(--ok) 70%, transparent); }
