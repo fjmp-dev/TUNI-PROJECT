@@ -47,6 +47,13 @@
 	# the in-UI terminal WebSocket (/api/term). All same-origin.
 	handle {
 		reverse_proxy 127.0.0.1:8080
+		# index.html must NEVER be cached: it is the only unhashed file, and it is what
+		# points at the hashed JS bundle. Without this, a browser happily keeps yesterday's
+		# index (and therefore yesterday's app) after a rebuild, and the operator has no
+		# way to know -- they see a fixed bug that is still broken on their screen. The
+		# hashed assets under /assets/ can still be cached forever; their name changes.
+		header /index.html Cache-Control "no-store"
+		header / Cache-Control "no-store"
 	}
 }
 

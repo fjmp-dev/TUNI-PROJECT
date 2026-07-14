@@ -71,7 +71,15 @@ function _connect() {
   ros.on('close', () => {
     const wasConnected = rosState.connected;
     rosState.connected = false;
-    if (wasConnected) log('rosbridge disconnected — reconnecting…', 'warn');
+    if (wasConnected) {
+      log('rosbridge disconnected — reconnecting…', 'warn');
+    } else if (!everConnected && rosState.generation <= 2) {
+      // Never connected even once: say WHICH url failed. Silence here cost us an
+      // afternoon -- the UI just said "down" while rosbridge was provably healthy,
+      // and the real answer (wrong origin / wrong port / stale cached bundle) was
+      // one line of text away.
+      log(`rosbridge unreachable at ${config.rosbridgeUrl} — retrying`, 'error');
+    }
     _schedule();
   });
 
