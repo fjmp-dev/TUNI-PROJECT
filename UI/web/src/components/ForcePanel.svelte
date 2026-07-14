@@ -2,6 +2,10 @@
   import { onMount, onDestroy } from 'svelte';
   import { api } from '../lib/api.js';
   import { log } from '../lib/log.svelte.js';
+  // Tare zeroes a live sensor and "Use native UI" cuts the reader for EVERYONE (the
+  // Overview tile included). Both are state-changing and were ungated on both sides --
+  // the backend now requires can_control, and so does the UI.
+  import { canControl } from '../lib/profiles.svelte.js';
 
   // Nordbo NRS wrist force/torque sensors. The backend reads each sensor's native
   // WebSocket and serves the latest [Fx,Fy,Fz,Tx,Ty,Tz]; we poll it here.
@@ -59,11 +63,15 @@
           <div class="wrist-head">
             <span class="dot" class:on={s?.connected && !s?.paused}></span>
             <span class="wname">{side === 'left' ? 'Left' : 'Right'} wrist</span>
-            <button class="tare" onclick={() => tare(side)} disabled={!s?.connected || s?.paused} title="Zero the sensor">Tare</button>
+            <button class="tare" onclick={() => tare(side)}
+                    disabled={!s?.connected || s?.paused || !canControl()}
+                    title={canControl() ? 'Zero the sensor' : 'Read-only: control not allowed'}>Tare</button>
             {#if s?.paused}
-              <button class="resume" onclick={() => connect(side)} title="Resume reading this sensor in mirui">Resume</button>
+              <button class="resume" onclick={() => connect(side)} disabled={!canControl()}
+                      title={canControl() ? 'Resume reading this sensor in mirui' : 'Read-only: control not allowed'}>Resume</button>
             {:else}
-              <button class="pause" onclick={() => disconnect(side)} title="Free the WebSocket slot so the sensor's native UI can connect">Use native UI</button>
+              <button class="pause" onclick={() => disconnect(side)} disabled={!canControl()}
+                      title={canControl() ? "Free the WebSocket slot so the sensor's native UI can connect" : 'Read-only: control not allowed'}>Use native UI</button>
             {/if}
           </div>
 

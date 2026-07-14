@@ -1117,21 +1117,29 @@ async def ur_joints():
     if _ur_joints_cache["data"] is not None and (now - _ur_joints_cache["ts"]) < UR_JOINTS_TTL:
         return _ur_joints_cache["data"]
 
+    # "The UR driver is not running" is a NORMAL state, not an error. This used to raise
+    # 500/503, and the UI polls joints 4x a second -- so with the arms simply switched off
+    # the browser console and the access log filled with hundreds of failures per minute,
+    # burying the errors that actually matter. Report it as data instead: 200 with
+    # available:false. (A genuinely broken joint_server still raises.)
     try:
         async with httpx.AsyncClient(timeout=1.0) as client:
             r = await client.get(JOINT_SERVER_URL)
+            if r.status_code == 503:
+                return {"available": False, "reason": "UR driver is not running"}
             if r.status_code != 200:
-                raise HTTPException(503, f"joint server returned {r.status_code}")
+                raise HTTPException(502, f"joint server returned {r.status_code}")
             data = r.json()
-    except httpx.TimeoutException:
-        raise HTTPException(504, "joint server timeout")
+    except (httpx.TimeoutException, httpx.ConnectError):
+        # joint_server itself is down (container restarting, supervised respawn in flight)
+        return {"available": False, "reason": "joint server unreachable"}
     except httpx.HTTPError as e:
         raise HTTPException(502, f"joint server error: {e}")
     except Exception as e:
         raise HTTPException(500, f"proxy error: {e}")
 
     if "error" in data:
-        raise HTTPException(503, data["error"])
+        return {"available": False, "reason": data["error"]}
 
     _ur_joints_cache = {"data": data, "ts": now}
     return data
@@ -1267,8 +1275,13 @@ async def mir_status():
         age = now - _mir_cache["ts"]
         if _mir_cache["data"] is not None and age < MIR_CACHE_TTL:
             return {**_format_mir_status(_mir_cache["data"]), "stale": True, "age_s": int(age)}
+        # A powered-off MiR is a NORMAL state, not a server error. Raising 504 made every
+        # poll (from several panels) show up as a failed request in the browser console and
+        # the access log, drowning the failures that matter -- the same mistake as
+        # /api/ur/joints. Report it as data.
         detail = "timeout" if isinstance(e, httpx.TimeoutException) else f"http error: {e}"
-        raise HTTPException(504, f"MiR {detail} (no cached data)")
+        return {"available": False, "offline": True,
+                "reason": f"MiR unreachable ({detail}) — usually powered off"}
     except Exception as e:
         raise HTTPException(500, f"MiR proxy error: {e}")
 
@@ -1470,8 +1483,15 @@ async def force_status():
                          for side in NORDBO_SENSORS}}
 
 
+# The three routes below CHANGE STATE and were shipped with no permission check at all:
+# any authenticated user, including a read-only one, could zero a live wrist force sensor
+# (tare) or kill the reader for everyone (disconnect) -- the latter is a one-request DoS
+# on the force telemetry the arms panel and the Overview tile depend on. Every other
+# actuation route gates on can_control; these were simply missed. Found in the 2026-07-14
+# end-to-end audit.
 @app.post("/api/force/{side}/tare")
-async def force_tare(side: str):
+async def force_tare(side: str, request: Request):
+    _require_control(request)
     if side not in NORDBO_SENSORS:
         raise HTTPException(404, "unknown sensor")
     _tare_req[side] = True
@@ -1479,10 +1499,11 @@ async def force_tare(side: str):
 
 
 @app.post("/api/force/{side}/disconnect")
-async def force_disconnect(side: str):
+async def force_disconnect(side: str, request: Request):
     """Pause the Nordbo reader for this side so the sensor's native web UI
     (served on its own IP, port 80) can grab the single WebSocket slot. The
     reader stops reconnecting until /api/force/{side}/connect is called."""
+    _require_control(request)
     if side not in NORDBO_SENSORS:
         raise HTTPException(404, "unknown sensor")
     _nordbo_paused[side] = True
@@ -1498,9 +1519,10 @@ async def force_disconnect(side: str):
 
 
 @app.post("/api/force/{side}/connect")
-async def force_connect(side: str):
+async def force_connect(side: str, request: Request):
     """Resume the Nordbo reader for this side. The reader loop wakes on its
     next 1s tick and reconnects."""
+    _require_control(request)
     if side not in NORDBO_SENSORS:
         raise HTTPException(404, "unknown sensor")
     _nordbo_paused[side] = False

@@ -27,8 +27,12 @@
   const mag = (s) => (s ? Math.hypot(s.fx || 0, s.fy || 0, s.fz || 0) : null);
 
   async function pollMir() {
-    try { mir = await api.mirStatus(); mirOffline = false; }
-    catch { mirOffline = true; }
+    try {
+      const r = await api.mirStatus();
+      // 200 {available:false} = powered off, which is a state, not a failure.
+      if (r && r.available === false) { mir = null; mirOffline = true; }
+      else { mir = r; mirOffline = false; }
+    } catch { mirOffline = true; }
   }
   async function pollForce() {
     try { const r = await api.force(); if (r?.sensors) force = r.sensors; } catch {}

@@ -2,6 +2,10 @@
   import { api } from '../lib/api.js';
   import { log } from '../lib/log.svelte.js';
   import { freedrive } from '../lib/skills.svelte.js';
+  // Freedrive makes the arm compliant and payload changes its dynamics: the two most
+  // physical things in this UI. They were the least gated -- a read-only user could press
+  // them and get an opaque 403. The backend refused; the UI never said why.
+  import { canControl } from '../lib/profiles.svelte.js';
 
   let arm = $state('left');
   let mass = $state(0.0);
@@ -88,7 +92,8 @@
         <label>CoG x (m) <input type="number" step="0.01" bind:value={cogX} /></label>
         <label>CoG y (m) <input type="number" step="0.01" bind:value={cogY} /></label>
         <label>CoG z (m) <input type="number" step="0.01" bind:value={cogZ} /></label>
-        <button class="btn-accent" onclick={applyPayload} disabled={busy}>Apply</button>
+        <button class="btn-accent" onclick={applyPayload} disabled={busy || !canControl()}
+                title={canControl() ? 'Apply the payload to the selected arm' : 'Read-only: control not allowed'}>Apply</button>
       </div>
       <div class="note">
         Tells the arm the mass and <strong>center of gravity (CoG)</strong> of the mounted tool, so its
@@ -110,7 +115,10 @@
       </div>
       <div class="row">
         {#each ['left', 'right'] as side}
-          <button class="fd-btn" class:on={freedrive[side]} disabled={fdBusy || appliedPayload[side] <= 1} onclick={() => toggleFreedrive(side)}>
+          <button class="fd-btn" class:on={freedrive[side]}
+                  disabled={fdBusy || appliedPayload[side] <= 1 || !canControl()}
+                  title={canControl() ? 'Toggle hand-guiding on this arm' : 'Read-only: control not allowed'}
+                  onclick={() => toggleFreedrive(side)}>
             {side === 'left' ? 'Left' : 'Right'}: {freedrive[side] ? 'ON — click to disable' : 'enable'}
           </button>
         {/each}

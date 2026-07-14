@@ -137,7 +137,9 @@
     <div class="term" bind:this={termEl}></div>
     {#if containers.length === 0}
       <div class="legend" style="color:var(--warn)">
-        No shell-capable containers are running. Start <code>mir_camera</code> / <code>mir_mir</code> from the sidebar.
+        <!-- There has been no sidebar since the tabbed redesign; this told people to look
+             at something that does not exist. Containers are started in the System tab. -->
+        No shell-capable containers are running. Start <code>mir_camera</code> / <code>mir_mir</code> from the <strong>System</strong> tab.
       </div>
     {:else}
       <div class="legend">Full shell inside the container (admin only). Try <code>ros2 node list</code>.</div>

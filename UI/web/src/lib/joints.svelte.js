@@ -10,7 +10,10 @@ let refs = 0;
 
 async function tick() {
   try {
-    jointsState.data = await api.urJoints();
+    const r = await api.urJoints();
+    // The backend answers 200 {available:false} when the UR driver simply is not running
+    // (a normal state, not a fault). Anything else is real joint data.
+    jointsState.data = r && r.available === false ? null : r;
   } catch {
     jointsState.data = null;
   }

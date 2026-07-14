@@ -5,6 +5,11 @@
   import { log } from '../lib/log.svelte.js';
   import { jointsState, startJoints, stopJoints } from '../lib/joints.svelte.js';
   import { freedrive } from '../lib/skills.svelte.js';
+  // The Arms tab was the one surface with no permission gating: a read-only user could
+  // press Start / Stop / jog and get an opaque "HTTP 403: control not allowed", which
+  // reads as a broken button, not as a denied permission. The backend always refused
+  // them (see _require_control) -- the UI just failed to say so.
+  import { canControl } from '../lib/profiles.svelte.js';
 
   let status = $state({ container_running: false, driver_running: false });
   let busy = $state(false);
@@ -84,8 +89,10 @@
       <span class="badge {status.driver_running ? 'ok' : ''}">
         {status.driver_running ? 'driver active' : status.container_running ? 'driver stopped' : 'no container'}
       </span>
-      <button class="btn-accent" onclick={start} disabled={busy || status.driver_running}>Start</button>
-      <button class="btn-danger" onclick={stop} disabled={busy || !status.driver_running}>Stop</button>
+      <button class="btn-accent" onclick={start} disabled={busy || status.driver_running || !canControl()}
+              title={canControl() ? 'Start the UR driver' : 'Read-only: control not allowed'}>Start</button>
+      <button class="btn-danger" onclick={stop} disabled={busy || !status.driver_running || !canControl()}
+              title={canControl() ? 'Stop the UR driver' : 'Read-only: control not allowed'}>Stop</button>
     </div>
   </div>
   <div class="panel-body">
@@ -111,8 +118,10 @@
           </div>
           <div class="elbow-controls">
             <span class="muted">elbow:</span>
-            <button onclick={() => move(arm, -0.1)} disabled={!status.driver_running || freedrive[arm]}>-0.1</button>
-            <button onclick={() => move(arm, 0.1)} disabled={!status.driver_running || freedrive[arm]}>+0.1</button>
+            <button onclick={() => move(arm, -0.1)} disabled={!status.driver_running || freedrive[arm] || !canControl()}
+                    title={canControl() ? 'Jog the elbow' : 'Read-only: control not allowed'}>-0.1</button>
+            <button onclick={() => move(arm, 0.1)} disabled={!status.driver_running || freedrive[arm] || !canControl()}
+                    title={canControl() ? 'Jog the elbow' : 'Read-only: control not allowed'}>+0.1</button>
             {#if freedrive[arm]}<span class="muted">freedrive on</span>{/if}
           </div>
         </div>
