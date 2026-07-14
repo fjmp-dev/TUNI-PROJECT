@@ -95,9 +95,13 @@
   </nav>
 
   <div class="top-right">
-    <div class="conn" class:off={!rosState.connected} title="rosbridge status">
+    <!-- "offline" used to be a lie: the UI stopped retrying after 25 s and kept
+         saying it while rosbridge was healthy. It now keeps reconnecting forever,
+         so the chip distinguishes "still trying" from "connected". -->
+    <div class="conn" class:off={!rosState.connected} title={rosState.connected
+            ? 'rosbridge connected' : 'rosbridge unreachable — retrying automatically'}>
       <span class="pulse" class:on={rosState.connected}></span>
-      <span class="conn-lbl">{rosState.connected ? 'rosbridge' : 'offline'}</span>
+      <span class="conn-lbl">{rosState.connected ? 'rosbridge' : 'reconnecting…'}</span>
     </div>
 
     <button class="iconbtn" onclick={toggleTheme} title="Toggle light / dark" aria-label="Toggle theme">

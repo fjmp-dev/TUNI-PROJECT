@@ -55,7 +55,13 @@ def _safe_pkill_in(container, pattern):
 # Configuration (env-overridable; defaults match the lab setup).
 # mir_ui loads config/.env via docker-compose `env_file`.
 # ============================================================
-MIR_HOST = os.getenv("MIR_IP", "192.168.1.13")
+# Default matches config/.env. It used to say .13 -- an address the MiR has not had
+# for a long time -- which meant any deployment without MIR_IP set silently polled a
+# dead host. The UI takes the host from /api/mir/status (below) rather than hardcoding
+# it a second time, so this stays the single source of truth.
+MIR_HOST = os.getenv("MIR_IP", "192.168.1.14")
+LEFT_ARM_IP = os.getenv("LEFT_ARM_IP", "192.168.1.102")
+RIGHT_ARM_IP = os.getenv("RIGHT_ARM_IP", "192.168.1.103")
 MIR_API_BASE = f"http://{MIR_HOST}/api/v2.0.0"
 MIR_TIMEOUT = float(os.getenv("MIR_TIMEOUT", "4.0"))          # MiR REST request timeout (s)
 MIR_CACHE_TTL = float(os.getenv("MIR_CACHE_TTL", "60.0"))     # serve cached MiR status up to this age (s)
@@ -1132,6 +1138,14 @@ async def ur_joints():
 
 
 _mir_cache = {"data": None, "ts": 0.0}  # config: MIR_CACHE_TTL
+
+
+@app.get("/api/config")
+async def get_config():
+    """Addresses the UI displays. Served from here so the IPs live in exactly one
+    place (config/.env): MirPanel used to print a hardcoded 192.168.1.13, an address
+    the MiR no longer has, so the panel confidently named the wrong robot."""
+    return {"mir_ip": MIR_HOST, "left_arm_ip": LEFT_ARM_IP, "right_arm_ip": RIGHT_ARM_IP}
 
 
 @app.get("/api/mir/status")

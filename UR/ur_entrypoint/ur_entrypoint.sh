@@ -13,6 +13,35 @@ mkdir -p /var/log/mir
 echo "[ur_driver] container ready, UR driver does NOT start automatically"
 echo "[ur_driver] the user must call /api/ur/start from the UI to launch duo_ur_real"
 
+# ---------------------------------------------------------------------------
+# supervise <name> <logfile> <command...>
+#
+# Runs a background service and RESTARTS it if it ever exits. These three
+# services (rosbridge, action_bridge, joint_server) used to be launched once with
+# `cmd &`: if one died, it stayed dead until someone restarted the whole
+# container, while the UI kept showing "offline" with no way back. rosbridge in
+# particular is the browser's only live-data path.
+#
+# Backoff: 2s, doubling to 30s, reset to 2s once a run lasts >60s (so a service
+# that crashes instantly does not spin the CPU, but a one-off crash recovers fast).
+# ---------------------------------------------------------------------------
+supervise() {
+    local name="$1" log="$2"; shift 2
+    (
+        local delay=2
+        while true; do
+            local start; start=$(date +%s)
+            echo "[supervisor] starting $name" >> "$log"
+            "$@" >> "$log" 2>&1 || true
+            local ran=$(( $(date +%s) - start ))
+            [ "$ran" -gt 60 ] && delay=2      # it was healthy for a while -> fast retry
+            echo "[supervisor] $name exited after ${ran}s; restarting in ${delay}s" >> "$log"
+            sleep "$delay"
+            delay=$(( delay * 2 )); [ "$delay" -gt 30 ] && delay=30
+        done
+    ) &
+}
+
 # Always start rosbridge (it is lightweight and useful for diagnostics)
 echo "[ur_driver] launching rosbridge on :9090 (locked to read-only whitelist)..."
 # SECURITY: the browser only SUBSCRIBES via rosbridge (camera); arm commands
@@ -30,21 +59,21 @@ ADDR_ARG=""
 # The literal double-quotes around each value are REQUIRED: without them ros2
 # launch parses "[...]" as a STRING_ARRAY, but the node declares these globs as
 # STRING and crashes (InvalidParameterTypeException). Quoting forces string type.
-ros2 launch rosbridge_server rosbridge_websocket_launch.xml \
+supervise rosbridge /var/log/mir/rosbridge.log \
+    ros2 launch rosbridge_server rosbridge_websocket_launch.xml \
     port:=9090 $ADDR_ARG \
     "topics_glob:=\"$ROSBRIDGE_TOPICS\"" \
     "services_glob:=\"[]\"" \
     "actions_glob:=\"[]\"" \
-    "params_glob:=\"[]\"" \
-    > /var/log/mir/rosbridge.log 2>&1 &
+    "params_glob:=\"[]\""
 
 # Start action_bridge (also lightweight)
-echo "[ur_driver] launching action_bridge..."
-python3 /action_bridge.py > /var/log/mir/action_bridge.log 2>&1 &
+echo "[ur_driver] launching action_bridge (supervised)..."
+supervise action_bridge /var/log/mir/action_bridge.log python3 /action_bridge.py
 
 # Start joint_server (HTTP server on :9091 for the UI)
-echo "[ur_driver] launching joint_server on :9091..."
-python3 /joint_server.py > /var/log/mir/joint_server.log 2>&1 &
+echo "[ur_driver] launching joint_server on :9091 (supervised)..."
+supervise joint_server /var/log/mir/joint_server.log python3 /joint_server.py
 
 # Keep the container alive
 echo "[ur_driver] waiting for signals..."

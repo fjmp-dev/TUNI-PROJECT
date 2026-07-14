@@ -77,6 +77,8 @@ export const api = {
   forceConnect: (side) => request(`/api/force/${side}/connect`, { method: 'POST' }),
 
   mirStatus: () => request('/api/mir/status'),
+  // Robot addresses, so the UI never hardcodes an IP a second time.
+  suiteConfig: () => request('/api/config'),
   urStatus: () => request('/api/ur/status'),
   urJoints: () => request('/api/ur/joints'),
   urStart: () => request('/api/ur/start', { method: 'POST' }),

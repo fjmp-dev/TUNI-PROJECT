@@ -11,9 +11,18 @@
   let frames = 0;
   let fpsTimer;
 
+  // The generation this `topic` was created against. A ROSLIB.Topic is bound to the
+  // Ros object it was made with, so after a reconnect the old one hangs off a dead
+  // socket and silently delivers nothing -- the feed would go black with the UI
+  // still claiming "connected". Tracking the generation forces a fresh subscription.
+  let topicGen = -1;
+
   function subscribe() {
     const ros = getRos();
-    if (!ros || topic) return;
+    if (!ros) return;
+    if (topic && topicGen === rosState.generation) return; // already live on this socket
+    topic = null; // stale one (if any) died with its socket; nothing to unsubscribe
+    topicGen = rosState.generation;
     topic = new ROSLIB.Topic({
       ros,
       name: config.topics.cameraImage,
@@ -30,6 +39,7 @@
       topic.unsubscribe();
       topic = null;
     }
+    topicGen = -1;
   }
 
   function toggle() {
@@ -41,8 +51,10 @@
     }
   }
 
-  // (Re)subscribe whenever rosbridge connects while the feed is enabled.
+  // (Re)subscribe whenever rosbridge connects -- and on every new connection
+  // generation, which is what makes the feed come back after a reconnect.
   $effect(() => {
+    rosState.generation; // tracked: re-runs on reconnect
     if (rosState.connected && active) subscribe();
   });
 

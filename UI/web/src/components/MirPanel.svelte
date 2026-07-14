@@ -8,6 +8,12 @@
   let failCount = 0;
   let timer;
 
+  // The address comes from the backend (config/.env). This header used to hardcode
+  // 192.168.1.13 -- an IP the MiR has not had for a long time -- so the panel named
+  // the wrong robot while polling the right one.
+  let mirIp = $state('');
+  api.suiteConfig().then((c) => (mirIp = c.mir_ip)).catch(() => {});
+
   const stateClass = (s) => {
     const x = (s || '').toLowerCase();
     if (x.includes('error')) return 'err';
@@ -47,7 +53,7 @@
 
 <div class="panel">
   <div class="panel-header">
-    <h2>MiR200 · 192.168.1.13</h2>
+    <h2>MiR200{mirIp ? ` · ${mirIp}` : ''}</h2>
     <div class="hdr-right">
       {#if data}
         <span class="badge {stateClass(data.state)}" class:stale={data.stale}>
