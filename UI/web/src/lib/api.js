@@ -79,6 +79,9 @@ export const api = {
   mirStatus: () => request('/api/mir/status'),
   // Robot addresses, so the UI never hardcodes an IP a second time.
   suiteConfig: () => request('/api/config'),
+  // Camera USB bus health + the one-click recovery when it falls off the bus.
+  cameraUsb: () => request('/api/camera/usb'),
+  cameraUsbReset: () => request('/api/camera/usb/reset', { method: 'POST' }),
   urStatus: () => request('/api/ur/status'),
   urJoints: () => request('/api/ur/joints'),
   urStart: () => request('/api/ur/start', { method: 'POST' }),

@@ -1,0 +1,10 @@
+[Unit]
+Description=MIR Suite — USB reset helper for the Orbbec camera
+Documentation=file:///home/lab/Desktop/MIR/mir_suite/PERIPHERAL/camera_orbbec/usb_reset/README.md
+
+[Service]
+Type=oneshot
+# Runs as root on the HOST, which is the whole point: writing /sys/.../authorized needs
+# root, and we refuse to make the containers privileged just to get it (see SECURITY.md).
+# The containers only drop a request file; this is the only thing that acts on it.
+ExecStart=/bin/bash -c '/home/lab/Desktop/MIR/mir_suite/PERIPHERAL/camera_orbbec/usb_reset/usb_reset_camera.sh > /home/lab/Desktop/MIR/mir_suite/logs/usb_reset.result 2>&1; echo "exit:$?" >> /home/lab/Desktop/MIR/mir_suite/logs/usb_reset.result; rm -f /home/lab/Desktop/MIR/mir_suite/logs/usb_reset.request'

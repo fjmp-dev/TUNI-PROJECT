@@ -46,6 +46,11 @@ services:
       # Per-user profiles (YAML) live here so they persist across restarts/rebuilds.
       # Dedicated dir (not ./config) so .env secrets aren't exposed to a container with docker.sock.
       - ./UI/backend/data:/app/data
+      # Node logs (read by /api/nodes/{id}/logs) AND the camera USB-reset request file:
+      # the backend drops logs/usb_reset.request here and the root systemd unit on the
+      # host picks it up. That request file is the entire privilege boundary — the
+      # container asks, only the host acts. See PERIPHERAL/camera_orbbec/usb_reset/.
+      - ./logs:/var/log/mir
     restart: unless-stopped
 
   # --- Services by profile ---

@@ -1,0 +1,13 @@
+[Unit]
+Description=MIR Suite — watch for a camera USB-reset request
+
+[Path]
+# The UI (unprivileged, in a container) creates this file through its bind-mounted
+# logs/ directory; systemd notices and runs mir-usb-reset.service as root. That is the
+# whole privilege boundary: the container can ASK for a reset, it cannot perform one,
+# and it cannot ask for anything else.
+PathExists=/home/lab/Desktop/MIR/mir_suite/logs/usb_reset.request
+Unit=mir-usb-reset.service
+
+[Install]
+WantedBy=multi-user.target

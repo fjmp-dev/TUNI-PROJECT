@@ -1140,6 +1140,88 @@ async def ur_joints():
 _mir_cache = {"data": None, "ts": 0.0}  # config: MIR_CACHE_TTL
 
 
+# ============================================================
+# Camera USB recovery
+#
+# The Orbbec falls off the USB bus while still plugged in: no 2bc5 device in sysfs, no
+# /dev/video*, so the ROS node starts and then waits forever for hardware that is not
+# there. Recovery = power-cycling its USB 3 hub, which means writing /sys/.../authorized
+# as root on the HOST. We refuse to make the container privileged for that (SECURITY.md),
+# so the split is: this backend can only *detect* the fault and *request* a fix; a root
+# systemd unit on the host (mir-usb-reset.path) is the only thing that performs one.
+# See PERIPHERAL/camera_orbbec/usb_reset/.
+# ============================================================
+CAMERA_USB_ID = "2bc5"           # Orbbec vendor id
+USB_RESET_REQUEST = "/var/log/mir/usb_reset.request"   # logs/ is bind-mounted from the host
+USB_RESET_RESULT = "/var/log/mir/usb_reset.result"
+
+
+def _camera_on_bus() -> bool:
+    """True if the kernel currently sees the Orbbec. /sys is mounted read-only in the
+    container, which is all we need to look."""
+    try:
+        for entry in glob.glob("/sys/bus/usb/devices/*/idVendor"):
+            with open(entry) as fh:
+                if fh.read().strip() == CAMERA_USB_ID:
+                    return True
+    except OSError:
+        pass
+    return False
+
+
+@app.get("/api/camera/usb")
+async def camera_usb_status():
+    """Is the camera on the USB bus, and can we do anything about it if not?"""
+    return {
+        "present": await asyncio.to_thread(_camera_on_bus),
+        "helper_installed": os.path.isdir("/var/log/mir"),  # request dir is reachable
+    }
+
+
+@app.post("/api/camera/usb/reset")
+async def camera_usb_reset(request: Request):
+    """Ask the host helper to power-cycle the camera's USB hub, and wait for its verdict.
+
+    Only the USB 3 hubs are cycled: the BrainCo hands' FTDI adapters and the keyboard
+    hang off bus 1, and yanking those mid-operation would be far worse than a missing
+    camera. That restriction lives in usb_reset_camera.sh, not here.
+    """
+    _require_control(request)
+
+    def _run() -> dict:
+        if _camera_on_bus():
+            return {"status": "ok", "present": True, "output": "camera already on the bus"}
+        try:
+            with open(USB_RESET_RESULT, "w"):
+                pass  # truncate any previous verdict, so we cannot read a stale one
+            with open(USB_RESET_REQUEST, "w") as fh:
+                fh.write("reset\n")
+        except OSError as e:
+            raise HTTPException(500, f"cannot write the reset request: {e}")
+
+        # The helper cycles the hub (~3 s) and waits up to 10 s for re-enumeration.
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            time.sleep(1)
+            if not os.path.exists(USB_RESET_REQUEST):  # the helper consumed it
+                break
+        else:
+            raise HTTPException(
+                504,
+                "the host helper never picked up the request — is it installed? "
+                "sudo bash PERIPHERAL/camera_orbbec/usb_reset/install_host_helper.sh",
+            )
+        try:
+            with open(USB_RESET_RESULT) as fh:
+                output = fh.read().strip()
+        except OSError:
+            output = ""
+        present = _camera_on_bus()
+        return {"status": "ok" if present else "failed", "present": present, "output": output}
+
+    return await asyncio.to_thread(_run)
+
+
 @app.get("/api/config")
 async def get_config():
     """Addresses the UI displays. Served from here so the IPs live in exactly one

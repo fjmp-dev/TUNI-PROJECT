@@ -3,6 +3,8 @@
   import ROSLIB from 'roslib';
   import { getRos, rosState } from '../lib/ros.svelte.js';
   import { config } from '../lib/config.js';
+  import { api } from '../lib/api.js';
+  import { canControl } from '../lib/profiles.svelte.js';
 
   let imgSrc = $state('');
   let fps = $state(0);
@@ -58,14 +60,47 @@
     if (rosState.connected && active) subscribe();
   });
 
+  // ---- USB bus health ----
+  // The camera drops off the USB bus while still plugged in: the node runs, the feed
+  // stays black, and nothing in the UI explains why. The backend can see the bus (it
+  // reads /sys), so ask it, and offer the one-click recovery instead of making someone
+  // find a shell and a sudo password.
+  let usbPresent = $state(true);
+  let usbBusy = $state(false);
+  let usbMsg = $state('');
+  let usbTimer;
+
+  async function pollUsb() {
+    try { usbPresent = (await api.cameraUsb()).present; } catch { /* ignore */ }
+  }
+
+  async function resetUsb() {
+    usbBusy = true;
+    usbMsg = 'Power-cycling the USB hub…';
+    try {
+      const r = await api.cameraUsbReset();
+      usbPresent = r.present;
+      usbMsg = r.present
+        ? 'Camera is back on the bus — start its node from the System tab.'
+        : 'Still missing. Unplug the camera and plug it back in (USB 3 port).';
+    } catch (e) {
+      usbMsg = e.message;
+    } finally {
+      usbBusy = false;
+    }
+  }
+
   onMount(() => {
     fpsTimer = setInterval(() => {
       fps = frames;
       frames = 0;
     }, 1000);
+    pollUsb();
+    usbTimer = setInterval(pollUsb, 5000);
   });
   onDestroy(() => {
     clearInterval(fpsTimer);
+    clearInterval(usbTimer);
     unsubscribe();
   });
 </script>
@@ -79,6 +114,21 @@
     </div>
   </div>
   <div class="panel-body">
+    {#if !usbPresent}
+      <div class="usb-alert">
+        <div class="usb-txt">
+          <strong>The camera is not on the USB bus.</strong>
+          It is plugged in, but the kernel cannot see it — a known fault of this model.
+          The feed will stay black until its USB hub is power-cycled.
+        </div>
+        <button class="btn-accent" onclick={resetUsb} disabled={usbBusy || !canControl()}
+                title={canControl() ? 'Power-cycle the camera’s USB 3 hub (the hands and keyboard are not touched)'
+                                    : 'Read-only: control not allowed'}>
+          {usbBusy ? 'Resetting…' : 'Reset USB'}
+        </button>
+      </div>
+    {/if}
+    {#if usbMsg}<div class="usb-msg">{usbMsg}</div>{/if}
     <div class="view">
       {#if imgSrc}
         <img src={imgSrc} alt="camera" />
@@ -90,6 +140,14 @@
 </div>
 
 <style>
+  .usb-alert {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 12px;
+    padding: 11px 13px; border-radius: 9px; font-size: 12.5px; line-height: 1.5;
+    background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent);
+  }
+  .usb-alert .usb-txt { flex: 1; min-width: 0; color: var(--text); }
+  .usb-alert button { white-space: nowrap; }
+  .usb-msg { margin-bottom: 12px; font-size: 12.5px; color: var(--muted); }
   .view {
     aspect-ratio: 16 / 10;
     background: #000;
