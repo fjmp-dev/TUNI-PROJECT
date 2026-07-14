@@ -109,7 +109,21 @@
   <div class="panel-header">
     <h2>Orbbec Camera</h2>
     <div class="hdr-right">
+      <span class="badge" class:err={!usbPresent} title={usbPresent
+              ? 'Camera is on the USB bus' : 'Camera is NOT on the USB bus'}>
+        {usbPresent ? 'usb ok' : 'no usb'}
+      </span>
       <span class="badge">{fps} FPS</span>
+      <!-- Always reachable, not only when the fault is already visible: the feed can be
+           black for several reasons and "did the camera fall off the bus again?" is the
+           first thing anyone asks. Harmless when the camera is healthy -- the backend
+           short-circuits and never cycles the hub. -->
+      <button onclick={resetUsb} disabled={usbBusy || !canControl()}
+              title={canControl()
+                ? 'Power-cycle the camera’s USB 3 hub. Safe: the hands and keyboard are on another bus and are never touched.'
+                : 'Read-only: control not allowed'}>
+        {usbBusy ? 'Resetting…' : 'Reset USB'}
+      </button>
       <button onclick={toggle}>{active ? 'Stop' : 'Start'}</button>
     </div>
   </div>
@@ -119,7 +133,7 @@
         <div class="usb-txt">
           <strong>The camera is not on the USB bus.</strong>
           It is plugged in, but the kernel cannot see it — a known fault of this model.
-          The feed will stay black until its USB hub is power-cycled.
+          The feed stays black until its USB hub is power-cycled.
         </div>
         <button class="btn-accent" onclick={resetUsb} disabled={usbBusy || !canControl()}
                 title={canControl() ? 'Power-cycle the camera’s USB 3 hub (the hands and keyboard are not touched)'
