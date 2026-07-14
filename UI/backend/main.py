@@ -1189,13 +1189,18 @@ async def camera_usb_reset(request: Request):
     _require_control(request)
 
     def _run() -> dict:
-        if _camera_on_bus():
-            return {"status": "ok", "present": True, "output": "camera already on the bus"}
+        # ALWAYS cycle the hub. There are two failure modes and refusing to act when the
+        # device is "present" only covers one of them: the camera also gets stuck ON the
+        # bus -- it enumerates, the node opens it, the colour stream reports as enabled,
+        # and not one frame ever arrives (reliably reproduced by a hot stop/start of the
+        # node). A USBDEVFS_RESET ioctl does not clear that; only cutting the hub's power
+        # does. Refusing because "the camera is already there" is exactly wrong at the one
+        # moment somebody is staring at a black feed.
         try:
             with open(USB_RESET_RESULT, "w"):
                 pass  # truncate any previous verdict, so we cannot read a stale one
             with open(USB_RESET_REQUEST, "w") as fh:
-                fh.write("reset\n")
+                fh.write("force\n")
         except OSError as e:
             raise HTTPException(500, f"cannot write the reset request: {e}")
 
@@ -1219,7 +1224,25 @@ async def camera_usb_reset(request: Request):
         present = _camera_on_bus()
         return {"status": "ok" if present else "failed", "present": present, "output": output}
 
-    return await asyncio.to_thread(_run)
+    # Cycling the hub pulls the device out from under a running camera node, so the node
+    # has to come back afterwards -- otherwise the reset "succeeds" and the feed stays
+    # black, which is indistinguishable from failure to whoever pressed the button.
+    was_running = None
+    for nid in ("camera_color", "camera_depth"):
+        if await asyncio.to_thread(_node_status, nid):
+            was_running = nid
+            break
+    if was_running:
+        await asyncio.to_thread(_node_stop, was_running)
+        await asyncio.sleep(3)
+
+    result = await asyncio.to_thread(_run)
+
+    if was_running and result["present"]:
+        await asyncio.sleep(2)
+        await asyncio.to_thread(_node_start, was_running)
+        result["node_restarted"] = was_running
+    return result
 
 
 @app.get("/api/config")

@@ -5,6 +5,8 @@
   import { config } from '../lib/config.js';
   import { api } from '../lib/api.js';
   import { canControl } from '../lib/profiles.svelte.js';
+  import { nodesState, startNodes, stopNodes } from '../lib/nodes.svelte.js';
+  import { busy, startNode, stopNode } from '../lib/nodeControl.svelte.js';
 
   let imgSrc = $state('');
   let fps = $state(0);
@@ -44,20 +46,35 @@
     topicGen = -1;
   }
 
-  function toggle() {
-    active = !active;
-    if (active) subscribe();
-    else {
+  // Start/Stop drive the CAMERA NODE, not just this panel's subscription. They used to
+  // only toggle `active`, i.e. whether we listened to a topic: with the node stopped,
+  // "Start" subscribed to a topic nobody published and left you staring at "Waiting for
+  // image…" forever, with no hint that the thing producing images was not running. The
+  // button that says Start must start the camera.
+  const camNode = $derived(
+    (nodesState.nodes || []).find((n) => (n.id === 'camera_color' || n.id === 'camera_depth') && n.running)
+  );
+  const nodeRunning = $derived(!!camNode);
+  const nodeBusy = $derived(!!(busy['n:camera_color'] || busy['n:camera_depth']));
+
+  async function toggle() {
+    if (nodeRunning) {
+      await stopNode(camNode.id);
       unsubscribe();
       imgSrc = '';
+      active = false;
+    } else {
+      active = true;             // subscribe as soon as frames start arriving
+      await startNode('camera_color');   // colour-only: the variant this panel shows
     }
   }
 
   // (Re)subscribe whenever rosbridge connects -- and on every new connection
-  // generation, which is what makes the feed come back after a reconnect.
+  // generation, which is what makes the feed come back after a reconnect. Also when the
+  // node comes up, so the feed appears by itself once frames exist.
   $effect(() => {
     rosState.generation; // tracked: re-runs on reconnect
-    if (rosState.connected && active) subscribe();
+    if (rosState.connected && active && nodeRunning) subscribe();
   });
 
   // ---- USB bus health ----
@@ -81,7 +98,9 @@
       const r = await api.cameraUsbReset();
       usbPresent = r.present;
       usbMsg = r.present
-        ? 'Camera is back on the bus — start its node from the System tab.'
+        ? (r.node_restarted
+            ? 'Camera recovered — the node was restarted, frames in ~15 s.'
+            : 'Camera is on the bus. Press “Start” to run its node.')
         : 'Still missing. Unplug the camera and plug it back in (USB 3 port).';
     } catch (e) {
       usbMsg = e.message;
@@ -97,10 +116,12 @@
     }, 1000);
     pollUsb();
     usbTimer = setInterval(pollUsb, 5000);
+    startNodes();   // node status poll: this is how the panel knows the camera is up
   });
   onDestroy(() => {
     clearInterval(fpsTimer);
     clearInterval(usbTimer);
+    stopNodes();
     unsubscribe();
   });
 </script>
@@ -124,7 +145,13 @@
                 : 'Read-only: control not allowed'}>
         {usbBusy ? 'Resetting…' : 'Reset USB'}
       </button>
-      <button onclick={toggle}>{active ? 'Stop' : 'Start'}</button>
+      <button class:btn-accent={!nodeRunning} onclick={toggle}
+              disabled={nodeBusy || !canControl() || (!nodeRunning && !usbPresent)}
+              title={!canControl() ? 'Read-only: control not allowed'
+                   : !nodeRunning && !usbPresent ? 'The camera is not on the USB bus — reset it first'
+                   : nodeRunning ? 'Stop the camera node' : 'Start the camera node (colour)'}>
+        {nodeBusy ? '…' : nodeRunning ? 'Stop' : 'Start'}
+      </button>
     </div>
   </div>
   <div class="panel-body">
@@ -147,7 +174,15 @@
       {#if imgSrc}
         <img src={imgSrc} alt="camera" />
       {:else}
-        <div class="placeholder">{active ? 'Waiting for image…' : 'Stopped'}</div>
+        <!-- Say WHICH thing is missing. "Waiting for image…" forever, with no camera node
+             running, is how you end up debugging rosbridge for an hour. -->
+        <div class="placeholder">
+          {#if !usbPresent}Camera is not on the USB bus — press “Reset USB”.
+          {:else if !nodeRunning}Camera node is stopped — press “Start”.
+          {:else if !rosState.connected}Waiting for rosbridge…
+          {:else}Starting the camera… (first frames take ~15 s)
+          {/if}
+        </div>
       {/if}
     </div>
   </div>
