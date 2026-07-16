@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>MIR Suite Access</title>
+<style>
+  @page { size: letter; margin: 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: #12151c; margin: 0; }
+  .sheet { width: 640px; margin: 0 auto; padding: 4mm 0; }
+  h1 { font-size: 25px; margin: 0 0 2px; letter-spacing: -.02em; }
+  .sub { color: #5b6472; font-size: 14px; margin: 0 0 18px; }
+  .cards { width: 100%; border-collapse: separate; border-spacing: 8px 0; table-layout: fixed; }
+  .card { width: 50%; border: 2px solid #e2e6ec; border-radius: 16px; padding: 14px; text-align: center; vertical-align: top; }
+  .step { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+           border-radius: 50%; background: #4e008e; color: #fff; font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+  .card h2 { font-size: 17px; margin: 0 0 2px; }
+  .card p { font-size: 12.5px; color: #5b6472; margin: 0 0 14px; min-height: 34px; }
+  .qr { width: 168px; height: 168px; margin: 0 auto; }
+  .qr img { width: 100%; height: 100%; image-rendering: pixelated; display: block; }
+  .manual { margin-top: 12px; font-size: 11.5px; color: #3a414d; }
+  .manual code { background: #f2f4f7; padding: 1px 6px; border-radius: 5px; font-size: 11.5px; }
+  .foot { margin-top: 22px; font-size: 12px; color: #5b6472; border-top: 1px solid #e2e6ec; padding-top: 12px; }
+  .foot b { color: #12151c; }
+</style></head>
+<body><div class="sheet">
+  <h1>MIR Suite &mdash; WiFi access</h1>
+  <p class="sub">Scan both codes with your phone camera, in order.</p>
+  <table class="cards"><tr>
+    <td class="card">
+      <div class="step">1</div>
+      <h2>Join the WiFi</h2>
+      <p>Scan to connect to the robot network.</p>
+      <div class="qr"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUoAAAFKAQMAAABB54RGAAAABlBMVEUSFRz///9ZCMyYAAABo0lEQVR42u2byw3DIBBEV6EASkrrLskFIBHMfq1cEimR5jAcotjsyU/DDoMt89NxCEtZytKvSk+x8fS7+u+QNn2qrcuHfDxY+p/Si1YLRmMhW/Dm0a8ba8IInqQFRGurZ4FqLrluAtvwdIK00GiJa0tMYKQFrS2RkFUlSFp4fesUNx3sW7C0whOeLrD8oScEo5UjxRSKKmafDwunb+391rgWwaEuo2jrSVo42hrVCerl3Miq8yAtoL7Vh4tpa6sbQb3kSojlCXd4cYmpJk9OUCdIC6dvddtgball8mQdjNqC6lvq0aV6eVOUsG+hOXjT1u5R6jcsxsjEkLRwaIWYnNssrp4uA8wT2lYruPVYHbt5edLCcRnZqCzGCIxhOkgLipb79jDvM3wiV0K8/dYMPBlj6AklM3gwbYkUHcVy6FaD2gLyhCV0P9TGt9gsNzp4NE8Ybv0WxN8bGh8W2NlxJE/S3oIo0kJ858lPtVJ03G+h0soXMaq2SAuRVg15axFXQsC+paDCJ3qgwb4F6Qn93UHrVn6AzCwDcr/FTzxYytKflb4AfKQapL+72GUAAAAASUVORK5CYII=" alt="WiFi QR"></div>
+      <div class="manual">Network: <code>Robot_suite</code></div>
+    </td>
+    <td class="card">
+      <div class="step">2</div>
+      <h2>Open the suite</h2>
+      <p>Once connected to the WiFi, scan to open the page.</p>
+      <div class="qr"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASIAAAEiAQMAAABncE31AAAABlBMVEUSFRz///9ZCMyYAAABTElEQVR42u2aOxLDIAxENfEBdCRfnSP5AMyQWB+gdAptkSyFxyaqnsWyXiLjwWjCKlb9WtUlMU67037PHSNnj0/VS54MVn1X5ZxtfNgn8dMebfYi+1r21t5OXDTfgi2Dk+xB7LtrTjySPbbvQ31cgsgep/d334fcHNR7CPvlcyZ2+hwM+22Y3o9NfcKJklcV++4vIHrcL/lSGvu+WnOs0ZsG7F2MlH1frTkm8NrT2OjwR/Z9ed+7yLTF/iZuP9DnAPp+RjluNFOHyB7i72PD1VT+sfYA8ipk32TuqxrBgt1R7+szhbnDxjLICzMFRJ4jM7/PKGdlPGRf/117RZiZPofswXnO2PN7+hyMz8nTqi6b6NPnAPR+6ot90sq+Fsgew96NZjh9ekww+zw9XOfnZA/Qe0t2tjDzYKYA8zkrwFnNT/YYf8//krHqT6rechLK4AKKeGkAAAAASUVORK5CYII=" alt="Suite URL QR"></div>
+      <div class="manual">or go to <code>http://192.168.1.75</code></div>
+    </td>
+  </tr></table>
+  <div class="foot">
+    <b>No QR scanner?</b> Connect manually to the WiFi network <b>Robot_suite</b>, then open
+    <b>http://192.168.1.75</b> in your browser. Sign in with your suite account.
+  </div>
+</div></body></html>
