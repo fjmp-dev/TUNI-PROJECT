@@ -288,12 +288,59 @@ class CreateUserRequest(BaseModel):
     can_control: bool = False
 
 
+# --- Login throttle -------------------------------------------------------------
+# Lock an account after repeated failures so login can't be brute-forced (pbkdf2 at
+# 200k iters slows each guess but does not stop a sustained loop). Keyed by username;
+# an attacker can temporarily lock a real user out — accepted trade-off for a LAN tool.
+# Tunable via config/.env (LOGIN_MAX_FAILS, LOGIN_LOCKOUT_S).
+LOGIN_MAX_FAILS = int(os.getenv("LOGIN_MAX_FAILS", "8"))
+LOGIN_LOCKOUT_S = int(os.getenv("LOGIN_LOCKOUT_S", "300"))
+_login_fails: dict = {}  # username -> {"count": int, "until": float}
+_login_lock = threading.Lock()
+# Precomputed so a login for an unknown user still runs one pbkdf2 (constant-ish time),
+# closing the username-enumeration timing side channel.
+_DUMMY_HASH = _hash_password("mir-dummy-password")
+
+
+def _login_locked(username: str) -> float:
+    with _login_lock:
+        rec = _login_fails.get(username)
+        if not rec:
+            return 0.0
+        remaining = rec.get("until", 0.0) - time.time()
+        return remaining if remaining > 0 else 0.0
+
+
+def _login_record_fail(username: str) -> None:
+    with _login_lock:
+        rec = _login_fails.setdefault(username, {"count": 0, "until": 0.0})
+        rec["count"] += 1
+        if rec["count"] >= LOGIN_MAX_FAILS:
+            rec["until"] = time.time() + LOGIN_LOCKOUT_S
+            rec["count"] = 0
+            _log.warning("login locked for %r for %ds after repeated failures",
+                         username, LOGIN_LOCKOUT_S)
+
+
+def _login_clear(username: str) -> None:
+    with _login_lock:
+        _login_fails.pop(username, None)
+
+
 @app.post("/api/login")
 async def login(body: LoginRequest):
+    locked = _login_locked(body.username)
+    if locked > 0:
+        raise HTTPException(429, f"too many attempts; try again in {int(locked) + 1}s")
     user = _profiles.get(body.username)
-    if user and _verify_password(body.password, user["password"]):
+    # Always run one verify (dummy hash on miss) so response time doesn't reveal
+    # whether the username exists.
+    stored = user["password"] if user else _DUMMY_HASH
+    if user and _verify_password(body.password, stored):
+        _login_clear(body.username)
         token = _issue_token(user["username"], user.get("role", "user"))
         return {"token": token, **_public_profile(user)}
+    _login_record_fail(body.username)
     raise HTTPException(401, "invalid credentials")
 
 
@@ -410,10 +457,17 @@ async def delete_user(username: str, request: Request):
         if username == request.state.user:
             raise HTTPException(400, "cannot delete yourself")
         del _profiles[username]
-        _profiles_path = Path(__file__).parent / "data" / "profiles"
-        user_file = _profiles_path / f"{username}.yaml"
-        if user_file.exists():
-            user_file.unlink()
+        # Delete the on-disk profile too, or _load_profiles() resurrects the user on
+        # the next mir_ui restart — revocation must persist. Use PROFILES_DIR (the same
+        # dir _save_profile writes to), not a __file__-relative path; the old code also
+        # referenced pathlib.Path which is not imported, so this raised NameError AFTER
+        # the in-memory delete and left the file behind (deleted users came back).
+        user_file = os.path.join(PROFILES_DIR, f"{username}.yaml")
+        try:
+            if os.path.exists(user_file):
+                os.remove(user_file)
+        except OSError as e:
+            _log.error("failed to remove profile file for %s: %s", username, e)
     return {"status": "ok", "username": username}
 
 # ============================================================
@@ -1327,7 +1381,15 @@ TERM_ALLOWED = {"mir_ur_driver", "mir_ur_driver_sim", "mir_mir", "mir_camera"}
 
 @app.websocket("/api/term")
 async def term_ws(ws: WebSocket):
-    sess = _resolve_token(ws.query_params.get("token"))
+    # The token comes in via the WebSocket subprotocol, NOT the query string: the
+    # browser opens `new WebSocket(url, ['mir-term', <token>])`. A subprotocol travels
+    # in the Sec-WebSocket-Protocol request header, so it does not land in uvicorn/Caddy
+    # access logs, browser history, or Referer the way `?token=` did. If we accept, we
+    # must echo an agreed subprotocol back ('mir-term'). Query token kept only as a
+    # transitional fallback for a stale cached bundle.
+    protos = ws.scope.get("subprotocols", []) or []
+    token = protos[1] if len(protos) >= 2 else ws.query_params.get("token")
+    sess = _resolve_token(token)
     if sess is None or sess.get("role") != "admin":
         await ws.close(code=4401)
         return
@@ -1338,7 +1400,7 @@ async def term_ws(ws: WebSocket):
     if docker_client is None:
         await ws.close(code=4503)
         return
-    await ws.accept()
+    await ws.accept(subprotocol="mir-term" if "mir-term" in protos else None)
     api = docker_client.api
     try:
         # Source ROS before handing over the shell: none of the images put ros2 on

@@ -2,24 +2,18 @@
   import { onMount, onDestroy } from 'svelte';
   import { api } from '../lib/api.js';
   import { log } from '../lib/log.svelte.js';
+  import { forceState, startForce, stopForce } from '../lib/force.svelte.js';
   // Tare zeroes a live sensor and "Use native UI" cuts the reader for EVERYONE (the
   // Overview tile included). Both are state-changing and were ungated on both sides --
   // the backend now requires can_control, and so does the UI.
   import { canControl } from '../lib/profiles.svelte.js';
 
-  // Nordbo NRS wrist force/torque sensors. The backend reads each sensor's native
-  // WebSocket and serves the latest [Fx,Fy,Fz,Tx,Ty,Tz]; we poll it here.
-  let sensors = $state({ left: null, right: null });
-  let timer;
+  // Nordbo NRS wrist force/torque sensors, from the shared ref-counted poller
+  // (also feeds the Overview tile) so /api/force is polled once, not per component.
+  const sensors = $derived(forceState.sensors);
   const F_MAX = 50; // N   full-scale for the bar
   const T_MAX = 5;  // Nm  full-scale for the bar
 
-  async function tick() {
-    try {
-      const r = await api.force();
-      if (r?.sensors) sensors = r.sensors;
-    } catch { /* keep last */ }
-  }
   async function tare(side) {
     try { await api.forceTare(side); log(`Tared ${side} force sensor`, 'success'); }
     catch (e) { log(`Tare failed: ${e.message}`, 'error'); }
@@ -41,8 +35,8 @@
     } catch (e) { log(`Resume failed: ${e.message}`, 'error'); }
   }
 
-  onMount(() => { tick(); timer = setInterval(tick, 150); });
-  onDestroy(() => clearInterval(timer));
+  onMount(startForce);
+  onDestroy(stopForce);
 
   const AXES_F = [['fx', 'Fx'], ['fy', 'Fy'], ['fz', 'Fz']];
   const AXES_T = [['tx', 'Tx'], ['ty', 'Ty'], ['tz', 'Tz']];

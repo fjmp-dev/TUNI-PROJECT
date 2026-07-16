@@ -34,7 +34,8 @@
   function wsUrl() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const params = new URLSearchParams();
-    params.set('token', config.token || '');
+    // The token goes in the WebSocket subprotocol (see connect()), NOT here — a
+    // query-string token leaks into proxy/access logs and browser history.
     if (sel) params.set('container', sel);
     return `${proto}://${location.host}/api/term?${params.toString()}`;
   }
@@ -61,7 +62,9 @@
       }
     }, 10000); // 10 second timeout
     
-    ws = new WebSocket(wsUrl());
+    // Token via subprotocol: ['mir-term', <token>]. The backend reads the 2nd value
+    // and echoes 'mir-term' back on accept. Keeps the credential out of the URL.
+    ws = new WebSocket(wsUrl(), ['mir-term', config.token || '']);
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => {
       clearTimeout(timeoutId);

@@ -1,9 +1,10 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { api } from '../lib/api.js';
   import { rosState } from '../lib/ros.svelte.js';
   import { jointsState, startJoints, stopJoints } from '../lib/joints.svelte.js';
   import { nodesState, startNodes, stopNodes } from '../lib/nodes.svelte.js';
+  import { mirState, startMir, stopMir } from '../lib/mir.svelte.js';
+  import { forceState, startForce, stopForce } from '../lib/force.svelte.js';
   import { profile, canControl } from '../lib/profiles.svelte.js';
   import { busy, startNode, stopNode, startMyNodes } from '../lib/nodeControl.svelte.js';
 
@@ -19,34 +20,17 @@
   // Map a joint radian value (~ -pi..pi) to a 0..100 bar fill.
   const barPct = (v) => (v == null ? 0 : Math.max(2, Math.min(100, ((v + Math.PI) / (2 * Math.PI)) * 100)));
 
-  // ---- MiR + force: light own polls (Overview only) ----
-  let mir = $state(null);
-  let mirOffline = $state(false);
-  let force = $state({ left: null, right: null });
-  let mirTimer, forceTimer;
+  // ---- MiR + force: shared, ref-counted pollers (also used by the MiR/Arms tabs) ----
+  const mir = $derived(mirState.data);
+  const mirOffline = $derived(mirState.offline);
+  const force = $derived(forceState.sensors);
   const mag = (s) => (s ? Math.hypot(s.fx || 0, s.fy || 0, s.fz || 0) : null);
 
-  async function pollMir() {
-    try {
-      const r = await api.mirStatus();
-      // 200 {available:false} = powered off, which is a state, not a failure.
-      if (r && r.available === false) { mir = null; mirOffline = true; }
-      else { mir = r; mirOffline = false; }
-    } catch { mirOffline = true; }
-  }
-  async function pollForce() {
-    try { const r = await api.force(); if (r?.sensors) force = r.sensors; } catch {}
-  }
-
   onMount(() => {
-    startNodes(); startJoints();
-    pollMir(); pollForce();
-    mirTimer = setInterval(pollMir, 5000);
-    forceTimer = setInterval(pollForce, 700);
+    startNodes(); startJoints(); startMir(); startForce();
   });
   onDestroy(() => {
-    stopNodes(); stopJoints();
-    clearInterval(mirTimer); clearInterval(forceTimer);
+    stopNodes(); stopJoints(); stopMir(); stopForce();
   });
 
   // ---- derived tile state ----

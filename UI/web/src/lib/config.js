@@ -25,9 +25,10 @@ export const config = {
     mirStatusMs: 4000,
     urStatusMs: 5000,
     urJointsMs: 250,
+    forceMs: 200,
   },
-  // Optional bearer token for write endpoints (backend auth is opt-in and not
-  // enabled yet; sending it early is harmless). Stored in localStorage.
+  // Session token for the API. Sent as the X-MIR-Token header (see lib/api.js) and,
+  // for the terminal WebSocket, as a subprotocol. Stored in localStorage.
   get token() {
     try {
       return localStorage.getItem('mir_token') || '';

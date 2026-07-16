@@ -1,8 +1,9 @@
 <script>
+  import { onMount, onDestroy } from 'svelte';
   import { rosState } from '../lib/ros.svelte.js';
   import { logout } from '../lib/auth.svelte.js';
   import { profile, canControl } from '../lib/profiles.svelte.js';
-  import { nodesState } from '../lib/nodes.svelte.js';
+  import { nodesState, startNodes, stopNodes } from '../lib/nodes.svelte.js';
   import { themeState, effectiveTheme, toggleTheme } from '../lib/theme.svelte.js';
   import { api } from '../lib/api.js';
   import { log } from '../lib/log.svelte.js';
@@ -20,7 +21,11 @@
   ];
   const tabs = $derived(TABS.filter((t) => !t.admin || profile.role === 'admin'));
 
-  // Live "running / total" of individual nodes for the System tab badge.
+  // Live "running / total" of individual nodes for the System tab badge. The TopBar is
+  // always mounted, so holding a ref on the shared (ref-counted) nodes poller keeps the
+  // badge live on every tab — not just the ones that happen to run the poller.
+  onMount(startNodes);
+  onDestroy(stopNodes);
   const nodeCount = $derived.by(() => {
     const n = nodesState.nodes || [];
     return { up: n.filter((x) => x.running).length, total: n.length };

@@ -57,6 +57,16 @@
     }
   });
 
+  // Bounce a non-admin off #/terminal. syncView() only covers hashchange, so a direct
+  // load of #/terminal (or the profile hydrating after load) would otherwise leave a
+  // non-admin staring at a blank view. This reactive guard fires on first render and
+  // whenever the role becomes known.
+  $effect(() => {
+    if (view === 'terminal' && profile.username && profile.role !== 'admin') {
+      window.location.hash = '/overview';
+    }
+  });
+
   onMount(() => {
     initTheme();
     window.addEventListener('hashchange', syncView);

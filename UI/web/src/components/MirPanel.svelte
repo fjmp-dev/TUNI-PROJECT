@@ -1,12 +1,12 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { api } from '../lib/api.js';
-  import { config } from '../lib/config.js';
+  import { mirState, startMir, stopMir, refreshMir } from '../lib/mir.svelte.js';
 
-  let data = $state(null);
-  let offline = $state(false);
-  let failCount = 0;
-  let timer;
+  // Read-through to the shared, ref-counted MiR poller (also used by the Overview tile),
+  // so there is a single /api/mir/status poll no matter how many views are mounted.
+  const data = $derived(mirState.data);
+  const offline = $derived(mirState.offline);
 
   // The address comes from the backend (config/.env). This header used to hardcode
   // 192.168.1.13 -- an IP the MiR has not had for a long time -- so the panel named
@@ -25,50 +25,10 @@
   const fmtTime = (s) => (s ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m` : '--');
   const deg = (rad) => ((rad ?? 0) * 180 / Math.PI).toFixed(1);
 
-  // Set on unmount. The poll is a setTimeout CHAIN, so clearTimeout() in onDestroy is not
-  // enough: a request already in flight lands afterwards and re-arms the chain from its
-  // `finally`, and the panel keeps polling the MiR forever — from every other tab, for the
-  // life of the page. Found in the 2026-07-14 audit: /api/mir/status was being requested
-  // from the Terminal tab.
-  let dead = false;
-
-  async function refresh() {
-    if (dead) return;
-    try {
-      const r = await api.mirStatus();
-      // 200 {available:false} = the MiR is simply powered off (not a server fault).
-      if (r && r.available === false) {
-        data = null;
-        offline = true;
-        failCount++;
-      } else {
-        data = r;
-        offline = false;
-        failCount = 0;
-      }
-    } catch {
-      offline = true;
-      failCount++;
-    } finally {
-      schedule();
-    }
-  }
-
-  // Back off when the MiR is unreachable (usually powered off) so we don't hammer
-  // the backend or flood the console every few seconds. Reset on success.
-  function schedule() {
-    clearTimeout(timer);
-    if (dead) return;
-    const base = config.poll.mirStatusMs;
-    const delay = offline ? Math.min(base * Math.min(failCount, 8), 30000) : base;
-    timer = setTimeout(refresh, delay);
-  }
-
-  onMount(refresh);
-  onDestroy(() => {
-    dead = true;
-    clearTimeout(timer);
-  });
+  // The shared store handles the poll + offline backoff + the in-flight-re-arm guard
+  // (via its ref count); this component just holds a ref while mounted.
+  onMount(startMir);
+  onDestroy(stopMir);
 </script>
 
 <div class="panel">
@@ -82,7 +42,7 @@
       {:else if offline}
         <span class="badge">offline</span>
       {/if}
-      <button onclick={() => { failCount = 0; refresh(); }}>Refresh</button>
+      <button onclick={refreshMir}>Refresh</button>
     </div>
   </div>
   <div class="panel-body">
