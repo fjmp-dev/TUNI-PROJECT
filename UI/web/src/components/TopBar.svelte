@@ -78,9 +78,25 @@
     } catch (e) { log(`Update failed: ${e.message}`, 'error'); }
   }
   async function deleteUser(username) {
-    if (!confirm(`Delete user '${username}'? This cannot be undone.`)) return;
+    if (!confirm(`Delete user '${username}'?`)) return;
     try { await api.deleteUser(username); log(`User '${username}' deleted`, 'success'); loadUsers(); }
     catch (e) { log(`Delete failed: ${e.message}`, 'error'); }
+  }
+
+  // Software emergency stop: cancels all active arm/hand ROS action goals
+  // and disables freedrive on both arms. Requires explicit confirmation.
+  let estopBusy = $state(false);
+  async function estop() {
+    if (!confirm('E-STOP: cancel all arm movements + disable freedrive? This stops everything immediately.')) return;
+    estopBusy = true;
+    try {
+      const r = await api.estop();
+      log(`E-STOP: cancelled=${r.cancelled_goals} freedrive_off=[${r.freedrive_stopped}]`, 'warn');
+    } catch (e) {
+      log(`E-STOP failed: ${e.message}`, 'error');
+    } finally {
+      estopBusy = false;
+    }
   }
 </script>
 
@@ -108,6 +124,11 @@
       <span class="pulse" class:on={rosState.connected}></span>
       <span class="conn-lbl">{rosState.connected ? 'rosbridge' : 'reconnecting…'}</span>
     </div>
+
+    {#if canControl()}
+      <button class="estop-btn" onclick={estop} disabled={estopBusy}
+              title="Emergency stop: cancel all arm movements + disable freedrive">E-STOP</button>
+    {/if}
 
     <button class="iconbtn" onclick={toggleTheme} title="Toggle light / dark" aria-label="Toggle theme">
       {#if dark}
@@ -269,6 +290,22 @@
 
   .iconbtn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); color: var(--muted); display: grid; place-items: center; padding: 0; }
   .iconbtn:hover { color: var(--text); border-color: var(--border-strong); }
+
+  .estop-btn {
+    padding: 6px 14px; border-radius: 8px; border: 2px solid var(--err);
+    background: color-mix(in srgb, var(--err) 12%, transparent);
+    color: var(--err); font-weight: 700; font-size: 13px; letter-spacing: 0.05em;
+    cursor: pointer; text-transform: uppercase;
+  }
+  .estop-btn:hover { background: var(--err); color: #fff; }
+  .estop-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  @keyframes estop-pulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--err) 40%, transparent); }
+    70% { box-shadow: 0 0 0 8px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+  .estop-btn { animation: estop-pulse 2s infinite; }
+  @media (prefers-reduced-motion: reduce) { .estop-btn { animation: none; } }
 
   .user-wrap { position: relative; }
   .user { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 5px; border-radius: 10px; border: 1px solid transparent; background: transparent; }

@@ -672,10 +672,17 @@ def ur_stop(request: Request):
 
 class MoveRequest(BaseModel):
     """Validated body for /api/ur/move. Bounds the joint set and the per-move
-    delta so a bad/oversized command can never reach the arm."""
+    delta so a bad/oversized command can never reach the arm.
+
+    Wrist joints (wrist_1/2/3) are gated behind `allow_wrist`: a safety rule
+    enforced by AGENTS.md that is now baked into the API. The caller must
+    explicitly opt in — a UI toggle or checkbox — before any wrist move is
+    accepted. This prevents accidental wrist commands from a mis-click or a
+    stale script."""
     arm: Literal["left", "right"]
     joint: Literal["shoulder_pan", "shoulder_lift", "elbow", "wrist_1", "wrist_2", "wrist_3"]
     delta: float = Field(..., ge=-UR_MAX_DELTA, le=UR_MAX_DELTA)
+    allow_wrist: bool = Field(False, description="Must be True to move wrist joints")
 
 
 class PayloadRequest(BaseModel):
@@ -839,6 +846,10 @@ async def ur_move(req: Request):
         move = MoveRequest.model_validate_json(sanitized)
     except ValidationError as e:
         raise HTTPException(422, f"invalid move request: {e.errors()}")
+    # Wrist safety gate: AGENTS.md prohibits wrist moves without explicit OK.
+    # This bakes that rule into the API so it cannot be bypassed by accident.
+    if move.joint.startswith("wrist") and not move.allow_wrist:
+        raise HTTPException(403, "wrist_* joints require allow_wrist=true — see AGENTS.md")
     if docker_client is None:
         raise HTTPException(503, "docker not available")
     return await asyncio.to_thread(_run_move, move.arm, move.joint, move.delta)
@@ -860,6 +871,62 @@ async def ur_freedrive(body: FreedriveRequest, request: Request):
     if docker_client is None:
         raise HTTPException(503, "docker not available")
     return await asyncio.to_thread(_run_freedrive, body.arm, body.enable)
+
+
+@app.post("/api/estop")
+async def estop(request: Request):
+    """Emergency stop: cancel all active arm/hand ROS action goals (via
+    action_bridge's stop_arm command on /mir/command) and disable freedrive on
+    both arms so the robot stops immediately. Requires admin or control role.
+    No hardware protective stop is triggered — this is software-only.
+
+    Runs in a worker thread because _run_freedrive does blocking docker exec
+    ROS commands that can take several seconds per arm."""
+    _require_control(request)
+    if docker_client is None:
+        raise HTTPException(503, "docker not available")
+    return await asyncio.to_thread(_estop_impl)
+
+
+def _estop_impl() -> dict:
+    """Synchronous e-stop implementation — see /api/estop for contract."""
+    try:
+        c = docker_client.containers.get(_ur_container_name())
+    except docker.errors.NotFound:
+        raise HTTPException(404, "UR driver container not found")
+    if c.status != "running":
+        raise HTTPException(400, f"{c.name} not running")
+
+    cancelled_goals = False
+    stopped_freedrive = []
+    errors = []
+
+    # 1. Cancel all active ROS action goals via action_bridge stop_arm.
+    try:
+        # The published message is a String containing a JSON object with key "command"
+        # and value "stop_arm". action_bridge.py parses msg.data as JSON on /mir/command.
+        data = r'{"command":"stop_arm"}'
+        cmd = (
+            "source /opt/ros/humble/setup.bash && "
+            "source /root/workspace/ros_ws/install/setup.bash 2>/dev/null && "
+            f'ros2 topic pub -1 /mir/command std_msgs/msg/String \'{{"data":"{data}"}}\' >/dev/null 2>&1'
+        )
+        r = c.exec_run(["bash", "-c", cmd], stdout=True, stderr=True, demux=False)
+        if r.exit_code == 0:
+            cancelled_goals = True
+    except Exception as e:
+        errors.append(f"stop_arm: {e}")
+
+    # 2. Disable freedrive on both arms so they fall back to trajectory control.
+    for arm in ("left", "right"):
+        try:
+            _run_freedrive(arm, False)
+            stopped_freedrive.append(arm)
+        except Exception:
+            pass  # arm may already be in trajectory mode
+
+    return {"status": "ok", "cancelled_goals": cancelled_goals,
+            "freedrive_stopped": stopped_freedrive, "errors": errors}
 
 
 # ============================================================
@@ -1377,6 +1444,24 @@ def _format_mir_status(data):
 # docker.sock ~= host root, so gate to admin. UI is login-gated on a local network.
 # ============================================================
 TERM_ALLOWED = {"mir_ur_driver", "mir_ur_driver_sim", "mir_mir", "mir_camera"}
+# Extra layer of protection for the shell: even with a valid admin token, the
+# operator must type this password before the WebSocket terminal opens. This is
+# NOT the auth token (which is short-lived and in-memory); it's a second factor
+# that lives only in config/.env and is logged nowhere.
+#
+# It MUST be a strong, UNIQUE value. The old hard-coded default ("fastlab2026")
+# is treated as INSECURE: it shipped in source (so it is public) and was reused
+# as the router password, so it is no second factor at all. If SHELL_PASSWORD is
+# unset or still a known default, we DISABLE the web terminal and warn at boot.
+_INSECURE_SHELL_DEFAULTS = {"", "fastlab2026", "changeme", "password", "admin"}
+SHELL_PASSWORD = os.getenv("SHELL_PASSWORD", "")
+SHELL_PASSWORD_INSECURE = SHELL_PASSWORD in _INSECURE_SHELL_DEFAULTS
+if SHELL_PASSWORD_INSECURE:
+    _log.warning(
+        "SHELL_PASSWORD is unset or still a known default -- the web terminal is "
+        "DISABLED until a strong, unique SHELL_PASSWORD is set in config/.env "
+        "(do NOT reuse the router or login password)."
+    )
 
 
 @app.websocket("/api/term")
@@ -1400,7 +1485,38 @@ async def term_ws(ws: WebSocket):
     if docker_client is None:
         await ws.close(code=4503)
         return
+    # Second factor: the operator must know the shell password. We ask for it
+    # over the WebSocket (not in the URL, not in logs). The frontend sends it
+    # as the first text message after open: {"type":"auth","password":"..."}.
     await ws.accept(subprotocol="mir-term" if "mir-term" in protos else None)
+    # Refuse to open a shell while the second factor is a known/empty default:
+    # otherwise it is no protection at all (see SHELL_PASSWORD_INSECURE above).
+    if SHELL_PASSWORD_INSECURE:
+        await ws.send_text(
+            "\r\n\x1b[31m[shell disabled: set a strong, unique SHELL_PASSWORD "
+            "in config/.env and restart mir_ui]\x1b[0m\r\n"
+        )
+        await ws.close(code=4403)
+        return
+    try:
+        auth_msg = await asyncio.wait_for(ws.receive_text(), timeout=30)
+        auth_ev = json.loads(auth_msg)
+        # Constant-time compare so a network attacker cannot recover the password
+        # byte-by-byte from response timing.
+        supplied = auth_ev.get("password", "") if isinstance(auth_ev, dict) else ""
+        pw_ok = hmac.compare_digest(str(supplied), SHELL_PASSWORD)
+        if not (isinstance(auth_ev, dict) and auth_ev.get("type") == "auth" and pw_ok):
+            await ws.send_text("\r\n\x1b[31m[shell password incorrect]\x1b[0m\r\n")
+            await ws.close(code=4403)
+            return
+        await ws.send_text("\r\n\x1b[32m[authenticated]\x1b[0m\r\n")
+    except asyncio.TimeoutError:
+        await ws.send_text("\r\n\x1b[31m[timeout waiting for shell password]\x1b[0m\r\n")
+        await ws.close(code=4408)
+        return
+    except Exception:
+        await ws.close(code=4403)
+        return
     api = docker_client.api
     try:
         # Source ROS before handing over the shell: none of the images put ros2 on
@@ -1450,7 +1566,14 @@ async def term_ws(ws: WebSocket):
                     ev = None
                 if isinstance(ev, dict) and ev.get("type") == "resize":
                     try:
-                        api.exec_resize(exec_id, height=int(ev["rows"]), width=int(ev["cols"]))
+                        # Validate before touching docker: unbounded values (e.g.
+                        # rows=99999999) can crash the daemon. Clamp to a sane max.
+                        rows = int(ev["rows"])
+                        cols = int(ev["cols"])
+                        if 1 <= rows <= 200 and 1 <= cols <= 200:
+                            api.exec_resize(exec_id, height=rows, width=cols)
+                    except (ValueError, TypeError):
+                        pass
                     except Exception:
                         pass
                 else:

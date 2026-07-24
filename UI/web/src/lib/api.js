@@ -86,10 +86,17 @@ export const api = {
   urJoints: () => request('/api/ur/joints'),
   urStart: () => request('/api/ur/start', { method: 'POST' }),
   urStop: () => request('/api/ur/stop', { method: 'POST' }),
-  urMove: (arm, joint, delta) =>
-    request('/api/ur/move', { method: 'POST', body: { arm, joint, delta } }),
+  /** Move a single UR joint. Pass allowWrist: true for wrist_* joints
+   *  (enforced server-side — see AGENTS.md wrist safety rule). */
+  urMove: (arm, joint, delta, allowWrist = false) =>
+    request('/api/ur/move', { method: 'POST', body: { arm, joint, delta, allow_wrist: allowWrist } }),
   urPayload: (arm, mass, cog_x, cog_y, cog_z) =>
     request('/api/ur/payload', { method: 'POST', body: { arm, mass, cog_x, cog_y, cog_z } }),
   urFreedrive: (arm, enable) =>
     request('/api/ur/freedrive', { method: 'POST', body: { arm, enable } }),
+  /** Software emergency stop: cancels all active arm/hand goals +
+   *  disables freedrive on both arms. Does NOT trigger a hardware
+   *  protective stop — the operator must still hit the physical e-stop
+   *  on the teach pendant for a hard stop. */
+  estop: () => request('/api/estop', { method: 'POST' }),
 };

@@ -13,6 +13,14 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep caddy || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 256m
+    cpus: 0.5
 
   # Publishes mir-suite.local on the LAN (via the host's avahi-daemon over D-Bus),
   # so the UI has a stable name that matches the TLS cert instead of a bare IP.
@@ -27,6 +35,14 @@ services:
       - /var/run/dbus:/var/run/dbus
       - /var/run/avahi-daemon:/var/run/avahi-daemon
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f avahi-publish-service || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 128m
+    cpus: 0.3
 
   # Always-on service (no profile = always starts)
   mir_ui:
@@ -52,6 +68,14 @@ services:
       # container asks, only the host acts. See PERIPHERAL/camera_orbbec/usb_reset/.
       - ./logs:/var/log/mir
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=2)\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    mem_limit: 512m
+    cpus: 1.0
 
   # --- Services by profile ---
 
@@ -84,6 +108,14 @@ services:
     environment:
       - ROS_DOMAIN_ID=75
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f orbbec_camera_node || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    mem_limit: 1g
+    cpus: 1.5
 
   mir:
     build:
@@ -112,6 +144,14 @@ services:
     environment:
       - ROS_DOMAIN_ID=75
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f mir_bridge.py || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    mem_limit: 1g
+    cpus: 1.0
 
   ur_driver:
     build: ./UR/ur_driver_image
@@ -166,6 +206,14 @@ services:
       # Bind rosbridge to loopback so :9090 is not LAN-exposed; Caddy proxies it.
       - ROSBRIDGE_ADDRESS=127.0.0.1
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; socket.socket().connect(('localhost', 9090))\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 4g
+    cpus: 3.0
 
   ur_driver_sim:
     build: ./UR/ur_driver_image
@@ -217,6 +265,14 @@ services:
       # Bind rosbridge to loopback so :9090 is not LAN-exposed; Caddy proxies it.
       - ROSBRIDGE_ADDRESS=127.0.0.1
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; socket.socket().connect(('localhost', 9090))\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 4g
+    cpus: 3.0
 
 # Named volumes for Caddy's TLS proxy state (its local data/config, incl. any
 # internally-managed keys). Kept out of the repo.

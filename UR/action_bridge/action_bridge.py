@@ -102,6 +102,9 @@ class ActionBridge(Node):
         self._move_left_client = None
         self._move_right_client = None
 
+        # Track active goal handles so stop_arm can cancel them.
+        self._active_goals = {}
+
         self._right_safe_joints = load_safe_joints()
         self.get_logger().info(
             f'ActionBridge ready — listening on /mir/command; '
@@ -153,9 +156,8 @@ class ActionBridge(Node):
         goal.max_currents = max_currents
 
         self.log(f'Closing hand: grasp={grasp} max_currents={max_currents}')
-        self._close_hand_client.send_goal_async(goal).add_done_callback(
-            lambda f: self._on_result(f, 'close_hand')
-        )
+        future = self._close_hand_client.send_goal_async(goal)
+        future.add_done_callback(lambda f: self._track_goal(f, 'close_hand'))
 
     def open_hand(self):
         from interfaces_pkg.action import OpenHand
@@ -168,9 +170,8 @@ class ActionBridge(Node):
 
         goal = OpenHand.Goal()
         self.log('Opening hand')
-        self._open_hand_client.send_goal_async(goal).add_done_callback(
-            lambda f: self._on_result(f, 'open_hand')
-        )
+        future = self._open_hand_client.send_goal_async(goal)
+        future.add_done_callback(lambda f: self._track_goal(f, 'open_hand'))
 
     # ============================================================
     # Arm movement
@@ -229,9 +230,8 @@ class ActionBridge(Node):
         v = goal.velocity_scaling_factor
         x, y, z = goal.x, goal.y, goal.z
         self.log(f'Move LEFT: xyz=[{x:.3f},{y:.3f},{z:.3f}] vel={v:.3f}')
-        self._move_left_client.send_goal_async(goal).add_done_callback(
-            lambda f: self._on_result(f, 'move_arm')
-        )
+        future = self._move_left_client.send_goal_async(goal)
+        future.add_done_callback(lambda f: self._track_goal(f, 'move_arm'))
 
     def move_right_arm(self, args):
         from moveit_msgs.action import MoveGroup
@@ -295,9 +295,8 @@ class ActionBridge(Node):
 
         orient_source = 'current' if current_q is not None else 'fallback'
         self.log(f'Move RIGHT: xyz=[{x:.3f},{y:.3f},{z:.3f}] vel={velocity:.3f} orient={orient_source}')
-        self._move_right_client.send_goal_async(goal).add_done_callback(
-            lambda f: self._on_result(f, 'move_arm')
-        )
+        future = self._move_right_client.send_goal_async(goal)
+        future.add_done_callback(lambda f: self._track_goal(f, 'move_arm'))
 
     def go_home(self, args):
         """Send the right arm to the saved safe joint configuration via MoveIt joint-space goal."""
@@ -342,13 +341,39 @@ class ActionBridge(Node):
         goal.planning_options.look_around = False
 
         self.log(f'HOME RIGHT: vel={velocity:.3f}')
-        self._move_right_client.send_goal_async(goal).add_done_callback(
-            lambda f: self._on_result(f, 'home')
-        )
+        future = self._move_right_client.send_goal_async(goal)
+        future.add_done_callback(lambda f: self._track_goal(f, 'home'))
 
     def stop_arm(self):
-        self.log('Stopping arm movement')
-        self.status({'action': 'stop_arm', 'result': 'ok'})
+        """Cancel every active ROS action goal (both arms, both hands).
+
+        Previously this only wrote a log line — it did not actually cancel
+        anything. Now it iterates the tracked goal handles and calls
+        cancel_goal_async on each, then clears the tracker so the next move
+        starts fresh."""
+        cancelled = 0
+        for key, gh in list(self._active_goals.items()):
+            try:
+                gh.cancel_goal_async()
+                cancelled += 1
+                self.get_logger().info(f'Cancelled goal: {key}')
+            except Exception as e:
+                self.get_logger().error(f'Failed to cancel {key}: {e}')
+        self._active_goals.clear()
+        self.status({
+            'action': 'stop_arm',
+            'result': 'ok',
+            'cancelled': cancelled,
+        })
+
+    def _track_goal(self, future, action):
+        """Store the goal handle for later cancellation, then forward to _on_result."""
+        try:
+            gh = future.result()
+            self._active_goals[action] = gh
+        except Exception:
+            pass  # goal was never accepted; nothing to cancel
+        self._on_result(future, action)
 
     def _on_result(self, future, action):
         try:
