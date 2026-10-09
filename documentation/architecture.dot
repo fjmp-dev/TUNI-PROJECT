@@ -1,0 +1,40 @@
+digraph G {
+  graph [rankdir=TB, fontname="Helvetica", fontsize=11, nodesep=0.3, ranksep=0.45, pad=0.15, bgcolor="white", newrank=true, splines=spline];
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, color="#5B6B7F", fillcolor="#FFFFFF", penwidth=1.1, margin="0.14,0.07"];
+  edge  [fontname="Helvetica", fontsize=8.5, color="#5B6B7F", arrowsize=0.7, fontcolor="#33475B"];
+
+  browser [label="Operator browser (lab LAN / Wi-Fi)", fillcolor="#EEF2F7"];
+
+  subgraph cluster_jetson {
+    label="NVIDIA Jetson AGX Orin \"Kevin\"  ·  Ubuntu 22.04  ·  ROS 2 Humble  ·  Docker Compose, host networking"; labeljust=l; labelloc=t;
+    style="rounded"; color="#1F3A5F"; fontcolor="#1F3A5F"; fontsize=10.5; penwidth=1.4;
+    caddy [label="mir_caddy — reverse proxy with TLS (private CA)\nthe only service listening on the LAN (:443 HTTPS, :80 HTTP)", fillcolor="#DCE6F2"];
+    mdns  [label="mir_mdns\nmir-suite.local", fillcolor="#F4F6F9"];
+    ui    [label="mir_ui — FastAPI backend + Svelte UI\n127.0.0.1:8080 · login, roles, node control", fillcolor="#DCE6F2"];
+    subgraph cluster_ros {
+      label="Shared ROS 2 graph — ROS_DOMAIN_ID 75, FastDDS via /dev/shm"; labeljust=l; labelloc=b;
+      style="rounded,dashed"; color="#9AA7B6"; fontcolor="#5B6B7F"; fontsize=9.5;
+      cam [label="mir_camera\nOrbbec driver\n480×270 @ 30 fps", fillcolor="#F3E9F5"];
+      mir [label="mir_mir\nselective MiR bridge\n6 topics in · 1 out\nwatchdog · backoff", fillcolor="#FBEFDF"];
+      ur  [label="mir_ur_driver (profile arms)\nur_ros2_control_node · 400 Hz\njoint_server :9091 · action_bridge\nrosbridge :9090 (camera topic only)", fillcolor="#E8F1EA"];
+    }
+    {rank=same; caddy; mdns}
+  }
+  usbcam  [label="Orbbec Gemini 335Lg\n(USB)", fillcolor="#F3E9F5"];
+  mirbase [label="MiR200 base\nROS 1 rosbridge · REST API", fillcolor="#FBEFDF"];
+  arms    [label="2 × UR5e\n.102 / .103", fillcolor="#E8F1EA"];
+  nordbo  [label="2 × Nordbo NRS-6200\nWebSocket :2003", fillcolor="#F4F6F9"];
+  {rank=same; usbcam; mirbase; arms; nordbo}
+  {rank=same; cam; mir; ur}
+
+  browser -> caddy [label="  HTTPS / HTTP"];
+  caddy -> ui [label="  UI, /api"];
+  caddy -> ur [label="  /rosbridge (WS)"];
+  ui -> ur [label="  HTTP · docker exec"];
+  ui -> mirbase [label="REST status", style=dashed];
+  ui -> nordbo [label="  WS", style=dashed];
+  cam -> usbcam [dir=both];
+  mir -> mirbase [dir=both, label="  roslibpy"];
+  ur -> arms [dir=both, label="  RTDE"];
+  ur -> nordbo [style=invis];
+}

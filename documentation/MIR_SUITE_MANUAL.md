@@ -1,11 +1,16 @@
 # MIR Suite — Technical Manual
 
+> **Note (October 2026):** this manual reflects the system as verified on 13 July 2026.
+> [`TECHNICAL_DOCUMENTATION.pdf`](TECHNICAL_DOCUMENTATION.pdf) (v2.0) was re-checked against the
+> code at release v1.0 and corrects several points (emergency stop, UR start-up checks,
+> DDS exposure, MiR address defaults). Where the two disagree, the technical documentation is authoritative.
+
 **Mobile dual-arm manipulation platform · Tampere University (TUNI) / Fastlab**
 
 | | |
 |---|---|
 | Document version | 1.0 — 13 July 2026 |
-| Repository | `https://github.com/fjmp-dev/TUNI-PROJECT` (branch `refactor/by-component`) |
+| Repository | `https://github.com/fjmp-dev/TUNI-PROJECT` (branch `main`, release v1.0) |
 | Audience | Industrial/robotics engineers developing on the platform |
 | Status of facts | Every version number, IP, port and command in this manual was read from the **running system** on 2026-07-13, not copied from older documents. |
 

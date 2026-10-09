@@ -1,15 +1,18 @@
-# documentation (global)
+# Documentation
 
-**The reference document is [`MIR_SUITE_MANUAL.md`](MIR_SUITE_MANUAL.md)** — the
-technical manual, verified against the live system. `MIR_SUITE_MANUAL.docx` is its
-Word build; regenerate it with `./build_manual.sh` after editing the Markdown
-(never edit the .docx directly). UI screenshots live in `manual_images/`.
+| Document | Purpose |
+|---|---|
+| [`PROJECT_REPORT.pdf`](PROJECT_REPORT.pdf) (`.docx`) | Project report for the supervisor: context, what was done, results, validation, known limitations, open items, handover. |
+| [`TECHNICAL_DOCUMENTATION.pdf`](TECHNICAL_DOCUMENTATION.pdf) (`.docx`) | **Reference document.** Architecture, MiR and UR5e integration, interface, security, operation, troubleshooting, testing. Re-checked against the code at release v1.0. |
+| [`MIR_SUITE_MANUAL.md`](MIR_SUITE_MANUAL.md) | Operator manual (13 July 2026), with UI screenshots in `manual_images/`. Where it disagrees with the technical documentation, the technical documentation is authoritative. `build_manual.sh` regenerates a .docx from it. |
+| [`architecture.png`](architecture.png) | System diagram (source: `architecture.dot`, render with `dot -Tpng -Gdpi=220`). |
+| `network_remote_access.md` | Network map and remote-access options. |
+| `PLAN_REFACTORIZACION.md` | Refactor plan and status (July 2026). |
+| `EXTERNAL_PROJECTS.md` | The vendored external projects. |
+| `referencias/screenshots/` | Early screenshots (June 2026). |
 
-Also here: `PLAN_REFACTORIZACION.md` (refactor status), `EXTERNAL_PROJECTS.md`
-(the vendored external repos), `comandos.txt`, and `referencias/` (PDF manuals,
-screenshots). Each component additionally has its own `documentation/` folder next
-to its code.
+Each component folder (`UR/`, `MiR/`, `PERIPHERAL/`, …) has its own README and
+`documentation/`. `SECURITY.md` at the repository root records the hardening history.
 
-The former PROJECT.md, meeting reports and HTML reports described the pre-refactor
-system and were deleted on 2026-07-13 (recoverable from git history; their facts
-are NOT current).
+**No credentials are kept in this repository.** They live only on the Jetson, in
+`config/.env` (template: `config/env.example`) and `UI/backend/data/`.
