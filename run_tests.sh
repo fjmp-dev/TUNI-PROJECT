@@ -17,16 +17,18 @@ NC='\033[0m'
 
 pass=0
 fail=0
+QUICK=0
+[ "${1:-}" = "--quick" ] && QUICK=1
 
 check() {
     local label="$1"; shift
     printf "  %-60s " "$label"
     if "$@" >/dev/null 2>&1; then
         echo -e "${GREEN}PASS${NC}"
-        ((pass++))
+        pass=$((pass + 1))
     else
         echo -e "${RED}FAIL${NC}"
-        ((fail++))
+        fail=$((fail + 1))
     fi
 }
 
@@ -63,7 +65,14 @@ echo ""
 # ---- 3. docker-compose validation -----------------------------------------
 echo "--- 3. docker-compose.yml validation ---"
 if command -v docker &>/dev/null; then
-    check "docker compose config" docker compose config
+    # A fresh clone has no config/.env (git-ignored); validate with the template.
+    if [ -f config/.env ]; then
+        check "docker compose config" docker compose config -q
+    else
+        cp config/env.example config/.env
+        check "docker compose config (with config/env.example)" docker compose config -q
+        rm -f config/.env
+    fi
 else
     echo "  (docker not available — skipping compose validation)"
 fi
@@ -71,14 +80,16 @@ echo ""
 
 # ---- 4. Python unit tests (no Docker required) -----------------------------
 echo "--- 4. Python unit tests (pytest) ---"
-if python3 -m pytest --version &>/dev/null; then
+if [ "$QUICK" = "1" ]; then
+    echo "  (--quick: skipping unit tests)"
+elif python3 -m pytest --version &>/dev/null; then
     python3 -m pytest tests/test_backend.py -v --tb=short 2>&1 | tail -30
     if [ ${PIPESTATUS[0]} -eq 0 ]; then
         echo -e "\n  ${GREEN}All unit tests passed${NC}"
-        ((pass++))
+        pass=$((pass + 1))
     else
         echo -e "\n  ${RED}Unit tests failed${NC}"
-        ((fail++))
+        fail=$((fail + 1))
     fi
 else
     echo "  (pytest not installed — install with: pip install pytest pyyaml)"
@@ -114,6 +125,6 @@ echo ""
 
 # ---- Summary --------------------------------------------------------------
 echo "============================================"
-echo "  Total: $((pass + fail)) checks  |  ${GREEN}${pass} passed${NC}  |  ${RED}${fail} failed${NC}"
+echo -e "  Total: $((pass + fail)) checks  |  ${GREEN}${pass} passed${NC}  |  ${RED}${fail} failed${NC}"
 echo "============================================"
 exit $fail
