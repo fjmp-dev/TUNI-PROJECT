@@ -10,11 +10,11 @@
 ## Access — RESOLVED (2026-07-02, via factory reset)
 The router was locked (the sticker password had been changed on RutOS's first login).
 Fixed with a factory reset (hold Reset button ~10 s).
-- **Login:** `admin` / `Fastlab2026` (web `https://192.168.1.1` and API). SSH uses `root` with the same password.
+- **Login:** `admin` (web `https://192.168.1.1` and API) and SSH as `root`. Credentials are held by the lab, not in this repository.
 - RMS (Teltonika cloud Remote Management System): Enabled but "Failure (Failed to resolve hostname)" → optional, Skip/Disable for the lab.
 
 ## WiFi (factory defaults)
-- SSIDs `RUT_D571_2G` (2.4 GHz) and `RUT_D572_5G` (5 GHz — note the 5G one is D572), key `g9K2JeHu` (encryption psk2).
+- SSIDs `RUT_D571_2G` (2.4 GHz) and `RUT_D572_5G` (5 GHz — note the 5G one is D572), key held by the lab (encryption psk2).
 - **The MiR connects to `RUT_D571_2G` (2.4 GHz)** with a DHCP reservation → always `.13`, 0% packet loss (see [[mir-wifi-root-cause]]).
 
 ## SIM as WAN (Elisa) — CONNECTED

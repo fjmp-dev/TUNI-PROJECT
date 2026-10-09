@@ -1450,8 +1450,8 @@ TERM_ALLOWED = {"mir_ur_driver", "mir_ur_driver_sim", "mir_mir", "mir_camera"}
 # that lives only in config/.env and is logged nowhere.
 #
 # It MUST be a strong, UNIQUE value. The old hard-coded default ("fastlab2026")
-# is treated as INSECURE: it shipped in source (so it is public) and was reused
-# as the router password, so it is no second factor at all. If SHELL_PASSWORD is
+# is treated as INSECURE: it shipped in source (so it is public), so it is no
+# second factor at all. If SHELL_PASSWORD is
 # unset or still a known default, we DISABLE the web terminal and warn at boot.
 _INSECURE_SHELL_DEFAULTS = {"", "fastlab2026", "changeme", "password", "admin"}
 SHELL_PASSWORD = os.getenv("SHELL_PASSWORD", "")

@@ -21,8 +21,8 @@ Restructuring of `mir_suite` **by robot component** (inspired by the reference r
 - **`ros_ws/src/` reorganized by component**: `UR_arms/ end_effector/ peripherals/ shared_common/ _archives/` (colcon discovers them recursively; 548 `install/` symlinks retargeted → no rebuild needed).
 
 ### Infra / network (resolved)
-- **Teltonika RUTX50 router** (`192.168.1.1`): factory reset → `admin / Fastlab2026`. Elisa SIM: **Connected, 5G**, APN Auto (weak signal RSRP −128, improve antennas).
-- **MiR WiFi**: 2.4 GHz `RUT_D571_2G` (key `g9K2JeHu`), **DHCP reservation → always `.13`**, **0% packet loss** (was 20-100%). Chronic issue resolved.
+- **Teltonika RUTX50 router** (`192.168.1.1`): factory reset; admin credentials held by the lab. Elisa SIM: **Connected, 5G**, APN Auto (weak signal RSRP −128, improve antennas).
+- **MiR WiFi**: 2.4 GHz `RUT_D571_2G` (key held by the lab), **DHCP reservation → always `.13`**, **0% packet loss** (was 20-100%). Chronic issue resolved.
 - **MiR bridge** (`mir_mir`): the rosbridge was wedging from reconnect churn → fixed + **exponential backoff** in the entrypoint. `/odom`, battery, 89 topics in ROS2. Stable.
 
 ### Others
